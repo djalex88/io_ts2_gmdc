@@ -598,6 +598,7 @@ class ResourceFile(object):
 			'cViewerRefNode'          : '\xbb\x6d\xa7\xdc',
 			'cViewerRefNodeRecursive' : '\x8e\x2b\x15\x0c',
 			'cGeometryNode'           : '\x8c\x83\xa3\x7b',
+			'cGeometryDataContainer'  : '\x87\x86\x4F\xAC',
 			'cMaterialDefinition'     : '\x78\x69\x59\x49',
 			}
 
@@ -651,4 +652,3 @@ def str_footprint(data):
 			s+= key.ljust(16) + '\x20'
 		s+= '\n' + '\n'.join(ss) + ('\n' if y!=maxy else '')
 	return s
-
