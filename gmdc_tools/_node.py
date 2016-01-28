@@ -97,7 +97,7 @@ class _SGNode(object):
 			error( 'Error! cSGResource header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
-		self.sg_resource = f.read(ord(f.read(1)))
+		self.sg_resource_name = f.read(ord(f.read(1)))
 		return True
 
 	def _read_cCompositionTreeNode(self, f):
@@ -179,7 +179,7 @@ class _SGNode(object):
 
 	def _write_cSGResource(self, f):
 		f.write('\x0bcSGResource\x00\x00\x00\x00\x02\x00\x00\x00')
-		f.write(chr(len(self.sg_resource)) + self.sg_resource)
+		f.write(chr(len(self.sg_resource_name)) + self.sg_resource_name)
 
 	def _write_cCompositionTreeNode(self, f):
 		f.write('\x14cCompositionTreeNode\x00\x00\x00\x00\x0b\x00\x00\x00')
@@ -222,7 +222,7 @@ class _SGNode(object):
 	#
 
 	def _str_cSGResource(self):
-		return '--SGResource: "%s"' % self.sg_resource
+		return '--SGResource: "%s"' % self.sg_resource_name
 
 	def _str_cCompositionTreeNode(self):
 		s = self._str_cObjectGraphNode()
@@ -252,4 +252,3 @@ class _SGNode(object):
 		return s
 
 #<- /_SGNode
-
