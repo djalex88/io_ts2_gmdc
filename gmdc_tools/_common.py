@@ -21,7 +21,7 @@
 #-------------------------------------------------------------------------------
 
 
-__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex']
+__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex', 'Raise']
 
 import sys
 from itertools import chain, repeat
@@ -53,3 +53,6 @@ def to_hex(s):
 def chunk(seq, sublen):
 	return [seq[i:i+sublen] for i in xrange(0, len(seq), sublen)]
 
+# Wrapper for raise Exception(message) statement so it can be used in expressions
+def Raise(message):
+	raise Exception(message)
