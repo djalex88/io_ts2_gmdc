@@ -620,16 +620,18 @@ def begin_export():
 	log()
 
 	transform_tree = None
-	if settings['export_rigging']:
+	if cres_filename:
 		# load skeleton
 		log( 'Opening CRES file "%s"...' % cres_filename )
 		try:
 			res = load_resource(cres_filename, _save_log and 2 or 1)
-			if not res or res.nodes[0].type != 'cResourceNode':
-				raise Exception('Not a CRES file!')
-			transform_tree = build_transform_tree(res.nodes)
-		except Exception as e:
-			error(e)
+			if res and res.nodes[0].type == 'cResourceNode':
+				transform_tree = build_transform_tree(res.nodes)
+			else:
+				res and error( 'Not a CRES file!' )
+		except:
+			print_last_exception()
+		if not transform_tree:
 			close_log_file()
 			display_menu('Error!', ['Could not load resource node file. See log for details.'])
 			return
@@ -650,8 +652,8 @@ def begin_export():
 	geometry = None
 	try:
 		geometry = prepare_geometry(transform_tree, settings)
-	except Exception as e:
-		error(e)
+	except:
+		print_last_exception()
 	if not geometry:
 		display_menu('Error!', ['An error has occured while preparing geometry. See log for details.'])
 		close_log_file()
@@ -661,8 +663,8 @@ def begin_export():
 	log( 'Creating GMDC file "%s"... ' % gmdc_filename )
 	try:
 		create_gmdc_file(gmdc_filename, s, geometry)
-	except Exception as e:
-		error(e)
+	except:
+		print_last_exception()
 		display_menu('Error!', ['An error has occured while creating GMDC file. See log for details.'])
 	else:
 		# Ok
@@ -762,7 +764,6 @@ def draw_gui():
 	pos_y-= 30
 
 	# shape object
-
 
 	Draw.Label("Shape mesh:", 20, pos_y, 100, 20)
 	str_shape_name = Draw.String("", 0x40, 120, pos_y, 200, 20, str_shape_name.val, 50, "Name of object that will be exported as shape mesh")
