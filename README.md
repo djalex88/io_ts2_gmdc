@@ -8,7 +8,7 @@
 
 #### Installation instructions
 1. Download and install **Blender 2.49b** from [Official Blender Website](https://download.blender.org/release/Blender2.49b/) (previous versions).
-2. Download .zip, extract files, put *gmdc_import.py*, *gmdc_export.py*, *gmdc_tools* into Blender's scripts directory.
-  * This may be *C:\Documents and Settings\<username>\Application Data\Blender Foundation\Blender\.blender\scripts\*,
+2. Download blender-gmdc .zip, extract files, put *gmdc_import.py*, *gmdc_export.py*, *gmdc_tools* into Blender's scripts directory.
+  * e.g. *C:\Documents and Settings\<username>\Application Data\Blender Foundation\Blender\.blender\scripts\*,
   * or *C:\Users\<username>\AppData\Roaming\Blender Foundation\Blender\.blender\scripts\*.
 3. Try it.
