@@ -54,7 +54,7 @@ def create_objects(geometry, transform_tree, settings):
 		mesh.verts.extend(V)
 		mesh.faces.extend(I, ignoreDups=True, smooth=True)
 
-		# since Blender recalculates normals, setting original normals is non use
+		# since Blender recalculates normals, setting original normals is useless
 		# instead, calculate normals
 		mesh.calcNormals()
 
@@ -140,17 +140,23 @@ def create_objects(geometry, transform_tree, settings):
 			T = __fv(data_group.tex_coords)
 			T = [(T[i], T[j], T[k]) for i, j, k in I]
 		else:
-			T = group.tex_coords
+			T = group.tex_coords[:] # copy
 
-		# also, Blender does not like zero-index vertex on 3rd position in triangle
-		# https://www.blender.org/api/249PythonDoc/Mesh.MFaceSeq-class.html#extend
+		# also, Blender does not like triangles with zero-index vertex on 3rd position
+		# as well as "triangles" with less than 3 different indices:
+		#   https://www.blender.org/api/249PythonDoc/Mesh.MFaceSeq-class.html#extend
 		#
 		for i, t in enumerate(I):
 			if 0 == t[2]:
 				I[i] = (t[2], t[0], t[1])
+				log( '--Triangle # %i reordered:' % i, t, '->', I[i] )
 				if T:
 					t = T[i]
 					T[i] = (t[2], t[0], t[1])
+			if len(set(t)) < 3:
+				del I[i]
+				log( '--Triangle # %i' % i, t, 'removed' )
+				if T: del T[i]
 
 		log( '--Creating mesh object (vertices: %i, triangles: %i)...' % (len(V), len(I)) )
 
@@ -399,14 +405,15 @@ def begin_import():
 	log( 'Opening GMDC file "%s"...' % gmdc_filename )
 	try:
 		res = load_resource(gmdc_filename, _save_log and 2 or 1)
-		if not res or res.nodes[0].type != 'cGeometryDataContainer':
-			raise Exception('Not a GMDC file!')
-		geometry = res.nodes[0].geometry
-	except Exception as e:
-		error(e)
+	except:
+		print_last_exception()
+		res = False
+	if not res or res.nodes[0].type != 'cGeometryDataContainer':
+		res and error( 'Not a GMDC file!' )
 		close_log_file()
 		display_menu('Error!', ['Could not load geometry file. See log for details.'])
 		return
+	geometry = res.nodes[0].geometry
 
 	log()
 
@@ -416,11 +423,13 @@ def begin_import():
 		log( 'Opening CRES file "%s"...' % cres_filename )
 		try:
 			res = load_resource(cres_filename, _save_log and 2 or 1)
-			if not res or res.nodes[0].type != 'cResourceNode':
-				raise Exception('Not a CRES file!')
-			transform_tree = build_transform_tree(res.nodes)
-		except Exception as e:
-			error(e)
+			if res and res.nodes[0].type == 'cResourceNode':
+				transform_tree = build_transform_tree(res.nodes)
+			else:
+				res and error( 'Not a CRES file!' )
+		except:
+			print_last_exception()
+		if not transform_tree:
 			close_log_file()
 			display_menu('Error!', ['Could not load resource node file. See log for details.'])
 			return
@@ -439,8 +448,8 @@ def begin_import():
 		log( 'Creating objects...' )
 		create_objects(geometry, transform_tree, settings)
 
-	except Exception as e:
-		error(e)
+	except:
+		print_last_exception()
 		display_menu('Error!', ['An error has occured. See log for details.'])
 
 	else:
