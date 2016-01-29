@@ -288,3 +288,4 @@ def build_transform_tree(sg_nodes):
 	tree._calc_abs_trans(tree.root_nodes)
 
 	return tree
+
