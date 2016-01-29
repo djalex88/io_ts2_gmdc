@@ -140,7 +140,7 @@ def create_objects(geometry, transform_tree, settings):
 			T = __fv(data_group.tex_coords)
 			T = [(T[i], T[j], T[k]) for i, j, k in I]
 		else:
-			T = group.tex_coords[:] # copy
+			T = group.tex_coords and group.tex_coords[:] # copy
 
 		# also, Blender does not like triangles with zero-index vertex on 3rd position
 		# as well as "triangles" with less than 3 different indices:
