@@ -212,7 +212,7 @@ class _SGNode(object):
 		f.write('\x0ecTransformNode\x62\x64\x24\x65\x07\x00\x00\x00')
 		self._write_cCompositionTreeNode(f)
 		f.write(pack('<3f', *self.T_loc) + pack('<4f', *self.T_rot))
-		f.write('\xff\xff\xff\x7f' if self.T_bone_index is None else pack('<l', self.T_bone_index))
+		f.write('\xff\xff\xff\x7f' if self.T_bone_index==None else pack('<l', self.T_bone_index))
 
 	def _write_cExtension_h(self, f):
 		f.write('\x0acExtension\x00\x00\x00\x00\x03\x00\x00\x00')
