@@ -271,7 +271,7 @@ def _load_geometry_data(f):
 
 		# again number of sections (?)
 		j = unpack('<l', f.read(4))[0]
-		j == i or Raise('Error! i != j (number of sections) (%08x)' % f.tell())
+		assert j == i # ?
 
 		# validate morph data
 		i = sum(2**i for i, v in enumerate(group.dVerts) if v)
@@ -302,7 +302,7 @@ def _load_geometry_data(f):
 		if index_mapping3: v = group.tex_coords ; group.tex_coords = [v[i] for i in index_mapping3]
 
 		if index_mapping1 or index_mapping2 or index_mapping3:
-			not (group.bones or group.keys) or Raise('Group has index mapping, but also bones and/or keys (%08x)' % f.tell())
+			assert not (group.bones or group.keys)
 
 		v = None
 
@@ -324,7 +324,7 @@ def _load_geometry_data(f):
 		log( 'Index group # %i @ %08x' % (k, f.tell()) )
 
 		type, data_group_index = unpack('<2l', f.read(8))
-		type == 2 or Raise('Other primitive types besides triangles(2) are not supported. (type: %i)' % type)
+		assert type == 2 # other primitives (if any), including 0-lines, are not supported
 
 		log( '--Refers to group:', data_group_index )
 
@@ -335,6 +335,7 @@ def _load_geometry_data(f):
 		# number of indices
 		i = unpack('<l', f.read(4))[0]
 		j = i*2
+		assert i%3 == 0
 
 		# add new index group
 		group = IndexGroup(name) ; INDEX_GROUPS.append(group)
@@ -344,14 +345,6 @@ def _load_geometry_data(f):
 		group.indices = chunk(unpack('<%iH'%i, f.read(j)), 3)
 
 		log( '--Number of indices: %i (%i triangles)' % (i, len(group.indices)) )
-
-		# now remove degenerated trianges (if any)
-		# otherwise, Blender ignores them
-		v = [i for i, x in enumerate(group.indices) if len(set(x)) < 3]
-		if v:
-			log( '--Degenerated triangle(s) found (%i).' % len(v), 'Removing...' )
-			v.reverse()
-			for i in v: del group.indices[i]
 
 		# flags (?)
 		s = f.read(4)
@@ -523,7 +516,7 @@ def _rm_doubles(geometry):
 
 			del N, B, W, K, dV, dN
 
-	#<- loop
+	#<- data_groups
 
 
 ########################################
