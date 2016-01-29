@@ -224,7 +224,7 @@ class DataListExtension(_SGNode):
 		s = 'cDataListExtension'
 		if self.Ext_data[1] == 'footprint':
 			s+= '\x20(footprint)\n'
-			s+= '\n'.join('--Footprint pattern "%s":\n' % name + str_footprint(data) for i, name, data in self.Ext_data[2])
+			s+= '\n'.join('--Footprint pattern "%s":\n' % name + _str_footprint(data) for i, name, data in self.Ext_data[2])
 		else:
 			s+= '\n' + self._str_ext_data(self.Ext_data)
 		return s
@@ -486,13 +486,13 @@ class MaterialDefinition(_SGNode):
 class ResourceFile(object):
 
 	def __init__(self, filename=None, log_level=1):
-		self.__clear__()
-		if filename is not None: self.load(filename, log_level)
+		self._clear()
+		if filename != None: self.load(filename, log_level)
 
-	def __clear__(self):
+	def _clear(self):
 		self.linked_resources = list()
 		self.nodes = list()
-		self.filename = None
+		self.sg_resource_name = None
 
 	def load(self, filename, log_level=1):
 
@@ -502,15 +502,19 @@ class ResourceFile(object):
 				error( 'Error! Wrong file header:', to_hex(s) )
 				return False
 
-			if not self.__load_resource(f, log_level):
-				self.__clear__()
+			if not self._load_resource(f, log_level):
+				self._clear()
 				return False
 
-			self.filename = filename
+		if self.nodes:
+			try:
+				self.sg_resource_name = self.nodes[0].sg_resource_name
+			except:
+				self.sg_resource_name = '?'
 
 		return True
 
-	def __load_resource(self, f, log_level):
+	def _load_resource(self, f, log_level):
 
 		# linked resources
 		#
@@ -522,10 +526,7 @@ class ResourceFile(object):
 		if log_level > 0:
 			log( 'Linked resources (%i):' % k )
 			for t in self.linked_resources:
-				if   t[3] == 0xFC6EB1F7: s = '(cShape)'
-				elif t[3] in (0xC9C81B9B, 0xC9C81BA9, 0xC9C81BAD): s = '(cLighting)'
-				else: s = ''
-				log( '%08X - %08X - %08X - %08X' % t, s )
+				log( '%08X - %08X - %08X - %08X' % t )
 
 		# types of nodes
 		#
@@ -579,9 +580,9 @@ class ResourceFile(object):
 	def create_file(self, filename):
 
 		with open(filename, 'wb') as f:
-			self.__create_resource_file(f)
+			self._create_resource_file(f)
 
-	def __create_resource_file(self, f):
+	def _create_resource_file(self, f):
 
 		f.write('\x01\x00\xff\xff')
 
@@ -609,8 +610,8 @@ class ResourceFile(object):
 			node.write(f)
 
 	def __str__(self):
-		if self.filename is None: return 'no resource loaded'
-		s = 'Resource file "%s"\n' % self.filename
+		if not self.sg_resource_name: return 'no resource loaded'
+		s = 'Resource name: "%s"\n' % self.sg_resource_name
 		s+= 'Linked resources (%i):\n' % len(self.linked_resources)
 		for t in self.linked_resources:
 			s+= '%08X - %08X - %08X - %08X\n' % t
@@ -630,7 +631,10 @@ def create_resource_file(filename, res):
 
 	res.create_file(filename)
 
-def str_footprint(data):
+
+#-------------------------------------------------------------------------------
+
+def _str_footprint(data):
 
 	w = dict((s, v) for i, s, v in data)
 
@@ -641,14 +645,15 @@ def str_footprint(data):
 
 	s = ''
 
-	for y in xrange(miny, maxy+1):
+	for y in xrange(maxy, miny-1, -1):
 		ss = [str()]*16
-		for x in xrange(maxx, minx-1, -1):
+		for x in xrange(minx, maxx+1):
 			key = '(%i,%i)' % (x, y)
 			v = w[key]
-			for i, j in zip(xrange(0, 32, 2), xrange(len(ss))):
+			for i, j in zip(xrange(0, 32, 2), xrange(15, -1, -1)):
 				a, b = ord(v[i]), ord(v[i+1])
-				ss[j]+= format(b<<8 | a, '016b').replace('0', '.').replace('1', 'X') + '\x20'
+				ss[j]+= "".join(reversed(format(b<<8 | a, '016b').replace('0', '.').replace('1', 'X'))) + '\x20'
 			s+= key.ljust(16) + '\x20'
-		s+= '\n' + '\n'.join(ss) + ('\n' if y!=maxy else '')
+		s+= '\n' + '\n'.join(ss) + ('\n' if y!=miny else '')
 	return s
+
