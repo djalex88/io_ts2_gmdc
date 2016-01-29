@@ -1,12 +1,12 @@
-# GMDC file importer/exporter for Blender 3D
+## GMDC file importer/exporter for Blender 3D
 
-### Features
+#### Features
 - It imports/exports directly from/to GMDC;
 - has GUI;
 - imports and exports morphs;
 - **Python** installation is not required.
 
-### Installation instructions
+#### Installation instructions
 1. Download and install **Blender 2.49b** from [Official Blender Website](https://download.blender.org/release/Blender2.49b/) (previous versions).
 2. Download .zip, extract files, put *gmdc_import.py*, *gmdc_export.py*, *gmdc_tools* into Blender's scripts directory.
   * This may be *C:\Documents and Settings\<username>\Application Data\Blender Foundation\Blender\.blender\scripts\*,
