@@ -21,12 +21,10 @@
 #-------------------------------------------------------------------------------
 
 
-__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex', 'Raise']
+__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex', 'print_last_exception']
 
 import sys
 from itertools import chain, repeat
-
-log_file = None
 
 def set_log_file(f):
 	global log_file
@@ -53,6 +51,13 @@ def to_hex(s):
 def chunk(seq, sublen):
 	return [seq[i:i+sublen] for i in xrange(0, len(seq), sublen)]
 
-# Wrapper for raise Exception(message) statement so it can be used in expressions
-def Raise(message):
-	raise Exception(message)
+def print_last_exception():
+	t, e, tb = sys.exc_info()
+	error( repr(e) )
+	i = 0
+	while tb:
+		c = tb.tb_frame.f_code
+		error( '\x20\x20'*i + '--Function: "%s" in "%s", line: %i' % (c.co_name, c.co_filename, tb.tb_lineno) )
+		tb = tb.tb_next ; i+= 1
+
+log_file = None
