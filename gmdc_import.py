@@ -28,9 +28,8 @@ Tooltip: 'Import TS2 GMDC file' """
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-import sys, os
-
 from gmdc_tools import *
+from itertools import chain
 
 import bpy, Blender
 from Blender import Draw
@@ -81,8 +80,8 @@ def create_objects(geometry, transform_tree, settings):
 				_bone.head = BlenderVector(node.abs_transform.loc.to_tuple())
 
 				# compute tail pos as arithmetic mean
-				v = [_n.abs_transform.loc for _n in node.child_nodes if id(_n) in node_ids]
-				v = sum(v, Vector())*(1./len(v)) if v else node.abs_transform.loc
+				v = [_n.abs_transform.loc for _n in node.child_nodes if (id(_n) in node_ids and _n.bone_index in bone_set)]
+				v = sum(v, Vector())*(1./len(v)) if (v and node.bone_index in bone_set) else node.abs_transform.loc
 
 				# the bone's length must not be 0, otherwise Blender ignores it
 				if (node.abs_transform.loc-v).len() < 0.025:
@@ -97,7 +96,7 @@ def create_objects(geometry, transform_tree, settings):
 				armature.bones[name] = _bone
 				add_bones_to_armature(node.child_nodes, _bone)
 		##
-		## armature and node_ids are defined at the bottom
+		## armature, node_ids and bone_set are defined at the bottom
 
 	def get_unique_name(name, _collection):
 		s = name ; i = 2
@@ -306,13 +305,13 @@ def create_objects(geometry, transform_tree, settings):
 
 	if transform_tree:
 
+		bone_set = set(chain(*(group.bones or [] for group in geometry.index_groups)))
+
 		if settings['all_bones']:
 
 			node_ids = set(map(id, transform_tree))
 
 		else:
-			bone_set = set(chain(*(group.bones or [] for group in geometry.index_groups)))
-
 			node_ids = set()
 			for j in bone_set:
 				node = transform_tree.get_node(j)
@@ -322,8 +321,6 @@ def create_objects(geometry, transform_tree, settings):
 				while node and id(node) not in node_ids:
 					node_ids.add(id(node))
 					node = node.parent
-
-			del bone_set
 
 		if node_ids:
 
@@ -435,9 +432,10 @@ def begin_import():
 			return
 
 		log()
-		log( '==SKELETON==============================' )
-		log( transform_tree )
-		log()
+		if _save_log:
+			log( '==SKELETON==============================' )
+			log( transform_tree )
+			log()
 
 	try:
 		if settings['remove_doubles']:
