@@ -25,8 +25,8 @@ __all__ = ['DataGroup', 'IndexGroup', 'GeometryData', 'create_gmdc_file']
 
 from struct import pack, unpack
 
-from _common import *
-from _node import _SGNode
+from ._common import *
+from ._node import _SGNode
 
 # Geometry data
 #
@@ -74,24 +74,40 @@ class GeometryDataContainer(_SGNode):
 		self.type = 'cGeometryDataContainer'
 		self.version = 0x04
 
-	def read(self, f):
+	def read(self, f, log_level=1):
 		s = f.read(31)
-		if s != '\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00':
+		if s != b'\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00':
 			error( 'Error! cGeometryDataContainer header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
 		if not self._read_cSGResource(f): return False
-		self.geometry = _load_geometry_data(f)
+		self.geometry = _load_geometry_data(f, log_level)
 		return bool(self.geometry)
 
 	def write(self, f):
-		f.write('\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00')
+		f.write(b'\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00')
 		self._write_cSGResource(f)
 		_write_geometry_data(f, self.geometry)
 
 	def __str__(self):
 		s = 'cGeometryDataContainer'
-		s+= '\n' + self._str_cSGResource()
+		g = self.geometry
+		s+= '\n' + self._str_cSGResource() + '\n'
+		s+= '--Data groups (%i):\n' % len(g.data_groups)
+		for i, group in enumerate(g.data_groups):
+			v = [group.vertices, group.normals, group.tex_coords, group.bones, group.weights, group.tangents, group.mask, group.keys]
+			s+= '\x20\x20%i - Elements:%5i, ' % (i, group.count)
+			s+= 'vertex: <' + "".join(map(lambda x, y: x if y else '', 'VNTBWXMK', v))
+			x, y = sum(map(bool, group.dVerts)), sum(map(bool, group.dNorms))
+			if x: s+= ' dV(%i)' % x
+			if y: s+= ' dN(%i)' % y
+			s+= '>\n'
+		s+= '--Index groups (%i):\n' % len(g.index_groups)
+		for i, group in enumerate(g.index_groups):
+			s+= '\x20\x20%i - Name: "%s", triangles: %i, data group: %i\n' % (i, group.name, len(group.indices), group.data_group_index)
+		s+= '--Inverse transforms: ' + (str(len(g.inverse_transforms)) if g.inverse_transforms else 'None') + '\n'
+		s+= '--Morphs: ' + (str(len(g.morph_names)) if g.morph_names else 'None') + '\n'
+		s+= '--Shapes: ' + (str(filter(bool, ['static' if g.static_shape else '', 'dynamic (%i)'%len(g.dynamic_shape) if g.dynamic_shape else ''])) or 'None')
 		return s
 
 
@@ -99,34 +115,36 @@ class GeometryDataContainer(_SGNode):
 ##  Geometry loader
 ########################################
 
-def _load_geometry_data(f):
+def _load_geometry_data(f, log_level):
 
 	#
 	# sections
 	#
 
 	dd = {
-		'\x81\x07\x83\x5B': ('Vertices',    'V'),
-		'\x8B\x07\x83\x3B': ('Normals',     'N'),
-		'\xAB\x07\x83\xBB': ('TexCoords',   'T'),
-		'\x11\x01\xD7\xFB': ('BoneIndices', 'B'),
-		'\x05\x01\xD7\x3B': ('BoneWeights', 'W'),
-		'\xA0\x2B\xD9\x89': ('Tangents',    'X'),
-		'\xE1\xCF\xF2\x5C': ('DiffVerts',  'dV'),
-		'\x6A\x3A\x6F\xCB': ('DiffNorms',  'dN'),
-		'\xDC\xCF\xF2\xDC': ('DiffKeys',    'K'),
-		'\x95\x07\x83\xDB': ('DeformMask',  'M'),
-		'\x82\xEE\x4D\x7C': ('0x7C4DEE82',  'U'),
+		b'\x81\x07\x83\x5B': ('Vertices',    'V'),
+		b'\x8B\x07\x83\x3B': ('Normals',     'N'),
+		b'\xAB\x07\x83\xBB': ('TexCoords',   'T'),
+		b'\x11\x01\xD7\xFB': ('BoneIndices', 'B'),
+		b'\x05\x01\xD7\x3B': ('BoneWeights', 'W'),
+		b'\xA0\x2B\xD9\x89': ('Tangents',    'X'),
+		b'\xE1\xCF\xF2\x5C': ('DiffVerts',  'dV'),
+		b'\x6A\x3A\x6F\xCB': ('DiffNorms',  'dN'),
+		b'\xDC\xCF\xF2\xDC': ('DiffKeys',    'K'),
+		b'\x95\x07\x83\xDB': ('DeformMask',  'M'),
+		b'\x82\xEE\x4D\x7C': ('0x7C4DEE82',  'U'),
 		}
 
-	log( '==SECTIONS==============================' )
+	if log_level:
+		log( '//// Reading GMDC...' )
+		log( '==SECTIONS==============================' )
 
 	SECTIONS = []
 
 	# number of sections
 	#
 	section_count = unpack('<l', f.read(4))[0]
-	log( 'Number of sections: %i' % section_count )
+	log_level and log( 'Number of sections: %i' % section_count )
 
 	for k in xrange(section_count):
 
@@ -135,8 +153,8 @@ def _load_geometry_data(f):
 		s1, s2 = dd[f.read(4)]
 		sub_idx, type_of_data, unknown1, j = unpack('<4l', f.read(16))
 
-		log( 'Section [%03i] @ %08x - ' % (k, offset) + s1 + (j==0 and (i and '\x20(empty, but count is %i)'%i or '\x20(empty)') or '') )
-		if i:
+		log_level and log( 'Section [%03i] @ %08x - ' % (k, offset) + s1 + (j==0 and (i and '\x20(empty, but count is %i)'%i or '\x20(empty)') or '') )
+		if i and log_level > 1:
 			log( '--Element count:',   i )
 			log( '--Sub index:', sub_idx )
 			log( '--Type of data:', type_of_data )
@@ -172,9 +190,9 @@ def _load_geometry_data(f):
 
 			assert i*4 == j
 
-			data = tuple(map(ord, f.read(j)))
+			data = unpack('%iB'%j, f.read(j))
 
-			log( '--Index range: [%i-%i]' % (min(data), max(x for x in data if x!=0xff)) )
+			log_level>1 and log( '--Index range: [%i-%i]' % (min(data), max(x for x in data if x!=0xff)) )
 
 			data = [v[:(v+(0xff,)).index(0xff)] for v in chunk(data, 4)]
 			SECTIONS.append( ('B', sub_idx, data) )
@@ -183,14 +201,14 @@ def _load_geometry_data(f):
 
 			assert i*4 == j
 
-			data = chunk(tuple(map(ord, f.read(j))), 4)
+			data = chunk(unpack('%iB'%j, f.read(j)), 4)
 			SECTIONS.append( (s2, sub_idx, data) )
 
 		else: # 0x7C4DEE82 (normals/morphs ?)
 
-			V = chunk(unpack('<%if'%(j/4), f.read(j)), 3)
+			V = chunk(unpack('<%if'%(j//4), f.read(j)), 3)
 
-			log( '--Number of vectors, indices:', len(V) )
+			log_level>1 and log( '--Number of vectors, indices:', len(V) )
 
 
 		# indices (only for 0x7C4DEE82)
@@ -207,7 +225,7 @@ def _load_geometry_data(f):
 			SECTIONS.append( (None, None, None) )
 
 		else:
-			assert f.read(4) == '\x00\x00\x00\x00'
+			assert f.read(4) == b'\x00\x00\x00\x00'
 
 	#<-
 
@@ -215,7 +233,7 @@ def _load_geometry_data(f):
 	# groups of data
 	#
 
-	log( '==GROUPS================================' )
+	log_level and log( '==GROUPS================================' )
 
 	DATA_GROUPS = []
 
@@ -223,7 +241,7 @@ def _load_geometry_data(f):
 	#
 	group_count = unpack('<l', f.read(4))[0]
 
-	log( 'Number of groups: %i' % group_count )
+	log_level and log( 'Number of groups: %i' % group_count )
 
 	for k in xrange(group_count):
 
@@ -237,7 +255,7 @@ def _load_geometry_data(f):
 		s = f.read(i*2)
 		indices = unpack('<%iH'%i, s)
 
-		log( 'Group %i:' % k, indices )
+		log_level and log( 'Group %i:' % k, indices )
 
 		# element count
 		group.count = unpack('<l', f.read(4))[0]
@@ -312,25 +330,26 @@ def _load_geometry_data(f):
 	# index groups (geometry parts)
 	#
 
-	log( '==INDICES===============================' )
+	log_level and log( '==INDICES===============================' )
 
 	INDEX_GROUPS = []
 
 	index_group_count = unpack('<l', f.read(4))[0]
-	log( 'Number of index groups:', index_group_count )
+	
+	log_level and log( 'Number of index groups:', index_group_count )
 
 	for k in xrange(index_group_count):
 
-		log( 'Index group # %i @ %08x' % (k, f.tell()) )
+		log_level and log( 'Index group # %i @ %08x' % (k, f.tell()) )
 
 		type, data_group_index = unpack('<2l', f.read(8))
 		assert type == 2 # other primitives (if any), including 0-lines, are not supported
 
-		log( '--Refers to group:', data_group_index )
+		log_level>1 and log( '--Refers to group:', data_group_index )
 
 		# name
-		name = f.read(ord(f.read(1)))
-		log( '--Name: "%s"' % name )
+		name = read_str(f)
+		log_level>1 and log( '--Name: "%s"' % name )
 
 		# number of indices
 		i = unpack('<l', f.read(4))[0]
@@ -344,11 +363,11 @@ def _load_geometry_data(f):
 		# read indices
 		group.indices = chunk(unpack('<%iH'%i, f.read(j)), 3)
 
-		log( '--Number of indices: %i (%i triangles)' % (i, len(group.indices)) )
+		log_level>1 and log( '--Number of indices: %i (%i triangles)' % (i, len(group.indices)) )
 
 		# flags (?)
 		s = f.read(4)
-		log( '--Flags (?):', to_hex(s) )
+		log_level>1 and log( '--Flags (?):', to_hex(s) )
 		group.flags = unpack('<L', s)[0]
 
 		# bone indices (if any)
@@ -356,23 +375,24 @@ def _load_geometry_data(f):
 		if i != 0:
 			s = f.read(i*2)
 			group.bones = unpack('<%iH'%i, s)
-			if i <= 5:
-				log( '--Bone indices: %i' % i, group.bones )
-			else:
-				log( '--Bone indices: %i' % i, '(%i, %i, %i, %i, %i, ... )' % group.bones[:5] )
+			if log_level > 1:
+				if i <= 5:
+					log( '--Bone indices: %i' % i, group.bones )
+				else:
+					log( '--Bone indices: %i' % i, '(%i, %i, %i, %i, %i, ... )' % group.bones[:5] )
 	#<-
 
 	#
 	# additional data
 	#
 
-	log( '==OTHER=================================' )
+	log_level and log( '==OTHER=================================' )
 
 	# inverse transforms
 	#
 	k = unpack('<l', f.read(4))[0]
 	if k:
-		log( 'Inverse transforms (%i) @ %08x' % (k, f.tell()-4) )
+		log_level and log( 'Inverse transforms (%i) @ %08x' % (k, f.tell()-4) )
 		inverse_transforms = []
 		for i in xrange(k):
 			inverse_transforms.append( (unpack('<4f', f.read(16)), unpack('<3f', f.read(12))) )
@@ -383,11 +403,11 @@ def _load_geometry_data(f):
 	#
 	k = unpack('<l', f.read(4))[0]
 	if k:
-		log( 'Morphs / vertex animations (%i):' % k )
+		log_level and log( 'Morphs / vertex animations (%i)' % k + (':' if log_level>1 else '') )
 		MORPH_NAMES = []
 		for i in xrange(k):
-			v = (f.read(ord(f.read(1))), f.read(ord(f.read(1))))
-			log( '--Strings: "%s", "%s"' % v )
+			v = (read_str(f), read_str(f))
+			log_level>1 and log( '--Strings: "%s", "%s"' % v )
 			MORPH_NAMES.append(v)
 	else:
 		MORPH_NAMES = None
@@ -397,9 +417,10 @@ def _load_geometry_data(f):
 	i = unpack('<l', f.read(4))[0]
 	if i:
 		j = unpack('<l', f.read(4))[0]
-		log( 'Static shape @ %08x:' % (f.tell()-4) )
-		log( '--Vertices:', i )
-		log( '--Indices:', j )
+		log_level and log( 'Static shape @ %08x' % (f.tell()-4) + (':' if log_level>1 else '') )
+		if log_level > 1:
+			log( '--Vertices:', i )
+			log( '--Indices:', j )
 
 		# read data
 		V = chunk(unpack('<%if'%(i*3), f.read(i*12)), 3)
@@ -412,7 +433,7 @@ def _load_geometry_data(f):
 	#
 	i = unpack('<l', f.read(4))[0]
 	if i:
-		log( 'Dynamic shape parts (%i):' % i )
+		log_level and log( 'Dynamic shape parts (%i)' % i + (':' if log_level>1 else '') )
 		dynamic_shape = []
 		for k in xrange(i):
 			offset = f.tell()
@@ -425,7 +446,7 @@ def _load_geometry_data(f):
 				I = chunk(unpack('<%iH'%j, f.read(j*2)), 3)
 				dynamic_shape.append((V, I))
 
-				log( '--Part # %02i @ %08x -> vertices: %i, indices: %i' % (k, offset, len(V), len(I)) )
+				log_level>1 and log( '--Part # %02i @ %08x -> vertices: %i, indices: %i' % (k, offset, len(V), len(I)) )
 			else:
 				dynamic_shape.append(None)
 
@@ -434,7 +455,7 @@ def _load_geometry_data(f):
 	else:
 		dynamic_shape = None
 
-	log( 'Finished @ %08x' % f.tell() )
+	log_level and log( '//// Finished @ %08x' % f.tell() )
 
 	return GeometryData(DATA_GROUPS, INDEX_GROUPS, inverse_transforms, MORPH_NAMES, static_shape, dynamic_shape)
 
@@ -475,7 +496,7 @@ def _rm_doubles(geometry):
 				indices.append(k)
 			assert len(indices) == g1.count
 
-			unique_verts = [v for v, i in sorted(unique_verts.iteritems(), key=lambda x: x[1])]
+			unique_verts = [v for v, i in sorted(unique_verts.items(), key=lambda x: x[1])]
 
 			log( '--Vertex count: %i -> %i' % (g1.count, len(unique_verts)) )
 			log( '--Updating data...' )
@@ -530,7 +551,7 @@ def create_gmdc_file(filename, sg_resource_name, geometry):
 	node.geometry = geometry
 
 	with open(filename, 'wb') as f:
-		f.write('\x01\x00\xff\xff\x00\x00\x00\x00\x01\x00\x00\x00\x87\x86\x4F\xAC')
+		f.write(b'\x01\x00\xff\xff\x00\x00\x00\x00\x01\x00\x00\x00\x87\x86\x4F\xAC')
 		node.write(f)
 
 	del node
@@ -615,27 +636,27 @@ def _write_geometry_data(f, geometry):
 		cc = len(data[0]) # component count
 
 		# magic number
-		if   type == 'V': s+= '\x81\x07\x83\x5B'
-		elif type == 'N': s+= '\x8B\x07\x83\x3B'
-		elif type == 'T': s+= '\xAB\x07\x83\xBB'
-		elif type == 'B': s+= '\x11\x01\xD7\xFB'
-		elif type == 'W': s+= '\x05\x01\xD7\x3B'
-		elif type == 'X': s+= '\xA0\x2B\xD9\x89'
-		elif type =='dV': s+= '\xE1\xCF\xF2\x5C'
-		elif type =='dN': s+= '\x6A\x3A\x6F\xCB'
-		elif type == 'K': s+= '\xDC\xCF\xF2\xDC'
-		elif type == 'M': s+= '\x95\x07\x83\xDB'
+		if   type == 'V': s+= b'\x81\x07\x83\x5B'
+		elif type == 'N': s+= b'\x8B\x07\x83\x3B'
+		elif type == 'T': s+= b'\xAB\x07\x83\xBB'
+		elif type == 'B': s+= b'\x11\x01\xD7\xFB'
+		elif type == 'W': s+= b'\x05\x01\xD7\x3B'
+		elif type == 'X': s+= b'\xA0\x2B\xD9\x89'
+		elif type =='dV': s+= b'\xE1\xCF\xF2\x5C'
+		elif type =='dN': s+= b'\x6A\x3A\x6F\xCB'
+		elif type == 'K': s+= b'\xDC\xCF\xF2\xDC'
+		elif type == 'M': s+= b'\x95\x07\x83\xDB'
 
 		s+= pack('<l', sub_index)
 
 		if type in ('B', 'K', 'M'):
-			s+= '\x04\x00\x00\x00' # 4 bytes
-			s+= '\x03\x00\x00\x00' # unknown
+			s+= b'\x04\x00\x00\x00' # 4 bytes
+			s+= b'\x03\x00\x00\x00' # unknown
 			s+= pack('<l', len(data)*4) # size in bytes
 			fmt = '4B'
 		else:
-			s+= pack('<l', cc-1)   # floats (1, 2 or 3)
-			s+= '\x03\x00\x00\x00' # unknown
+			s+= pack('<l', cc-1)    # floats (1, 2 or 3)
+			s+= b'\x03\x00\x00\x00' # unknown
 			s+= pack('<l', len(data)*4*cc) # size in bytes
 			fmt = '<%if'%cc
 
@@ -646,7 +667,7 @@ def _write_geometry_data(f, geometry):
 		for t in data:
 			f.write(pack(fmt, *t))
 
-		f.write('\x00\x00\x00\x00') # no indices
+		f.write(b'\x00\x00\x00\x00') # no indices
 
 	#
 	# groups
@@ -660,7 +681,7 @@ def _write_geometry_data(f, geometry):
 		f.write(pack('<%iH'%len(t), *t))    # section indices
 		f.write(pack('<l', len(group.vertices))) # number of elements in section
 		f.write(pack('<l', len(t)))         # again number of sections (?)
-		f.write('\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00') # no index mapping
+		f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00') # no index mapping
 
 	#
 	# indices
@@ -670,9 +691,9 @@ def _write_geometry_data(f, geometry):
 	f.write(pack('<l', len(geometry.index_groups)))
 
 	for group in geometry.index_groups:
-		f.write('\x02\x00\x00\x00') # triangles
+		f.write(b'\x02\x00\x00\x00') # triangles
 		f.write(pack('<l', group.data_group_index))
-		f.write(chr(len(group.name))+group.name)
+		write_str(f, group.name)
 		f.write(pack('<l', len(group.indices)*3))
 
 		for t in group.indices:
@@ -683,7 +704,7 @@ def _write_geometry_data(f, geometry):
 		if group.bones:
 			f.write(pack('<l%iH'%len(group.bones), len(group.bones), *group.bones))
 		else:
-			f.write('\x00\x00\x00\x00') # no bones
+			f.write(b'\x00\x00\x00\x00') # no bones
 
 	#
 	# inverse transforms
@@ -694,16 +715,17 @@ def _write_geometry_data(f, geometry):
 		for t in geometry.inverse_transforms:
 			f.write(pack('<7f', *(t[0]+t[1])))
 	else:
-		f.write('\x00\x00\x00\x00') # no transforms (static mesh)
+		f.write(b'\x00\x00\x00\x00') # no transforms (static mesh)
 
 	# morph names
 
 	if geometry.morph_names:
 		f.write(pack('<l', len(geometry.morph_names)))
 		for name in geometry.morph_names:
-			f.write(chr(len(name[0])) + name[0] + chr(len(name[1])) + name[1])
+			write_str(f, name[0])
+			write_str(f, name[1])
 	else:
-		f.write('\x00\x00\x00\x00') # no morphs
+		f.write(b'\x00\x00\x00\x00') # no morphs
 
 	#
 	# shape
@@ -722,7 +744,7 @@ def _write_geometry_data(f, geometry):
 		for t in I:
 			f.write(pack('<3H', *t))
 	else:
-		f.write('\x00\x00\x00\x00')
+		f.write(b'\x00\x00\x00\x00')
 
 	# dynamic shape
 
@@ -740,7 +762,7 @@ def _write_geometry_data(f, geometry):
 				for t in I:
 					f.write(pack('<3H', *t))
 			else:
-				f.write('\x00\x00\x00\x00')
+				f.write(b'\x00\x00\x00\x00')
 	else:
-		f.write('\x00\x00\x00\x00')
+		f.write(b'\x00\x00\x00\x00')
 
