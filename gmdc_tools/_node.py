@@ -21,7 +21,7 @@
 #-------------------------------------------------------------------------------
 
 from struct import pack, unpack
-from _common import *
+from ._common import *
 
 ########################################
 ##  Base node class
@@ -93,42 +93,42 @@ class _SGNode(object):
 
 	def _read_cSGResource(self, f):
 		s = f.read(20)
-		if s != '\x0bcSGResource\x00\x00\x00\x00\x02\x00\x00\x00':
+		if s != b'\x0bcSGResource\x00\x00\x00\x00\x02\x00\x00\x00':
 			error( 'Error! cSGResource header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
-		self.sg_resource_name = f.read(ord(f.read(1)))
+		self.sg_resource_name = read_str(f)
 		return True
 
 	def _read_cCompositionTreeNode(self, f):
 		s = f.read(29)
-		if s != '\x14cCompositionTreeNode\x00\x00\x00\x00\x0b\x00\x00\x00':
+		if s != b'\x14cCompositionTreeNode\x00\x00\x00\x00\x0b\x00\x00\x00':
 			error( 'Error! cCompositionTreeNode header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
 		if not self._read_cObjectGraphNode(f): return False
 		i = unpack('<l', f.read(4))[0]
 		s = f.read(i*6)
-		v = unpack('<'+'BBl'*(len(s)/6), s)
+		v = unpack('<'+'BBl'*(len(s)//6), s)
 		self.child_nodes = chunk(v, 3)
 		return True
 
 	def _read_cObjectGraphNode(self, f):
 		s = f.read(25)
-		if s != '\x10cObjectGraphNode\x00\x00\x00\x00\x04\x00\x00\x00':
+		if s != b'\x10cObjectGraphNode\x00\x00\x00\x00\x04\x00\x00\x00':
 			error( 'Error! cObjectGraphNode header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
 		i = unpack('<l', f.read(4))[0]
 		s = f.read(i*6)
-		v = unpack('<'+'BBl'*(len(s)/6), s)
+		v = unpack('<'+'BBl'*(len(s)//6), s)
 		self.extensions = chunk(v, 3)
-		self.obj_string = f.read(ord(f.read(1)))
+		self.obj_string = read_str(f)
 		return True
 
 	def _read_cRenderableNode(self, f):
 		s = f.read(24)
-		if s != '\x0fcRenderableNode\x00\x00\x00\x00\x05\x00\x00\x00':
+		if s != b'\x0fcRenderableNode\x00\x00\x00\x00\x05\x00\x00\x00':
 			error( 'Error! cRenderableNode header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
@@ -138,7 +138,7 @@ class _SGNode(object):
 		self.R_number2 = j
 		v = []
 		while j:
-			v.append(f.read(ord(f.read(1)))) # such as 'Practical', 'Sims', etc.
+			v.append(read_str(f)) # such as 'Practical', 'Sims', etc.
 			j-= 1
 		self.R_strings = v
 		self.R_unknown = f.read(5)
@@ -146,7 +146,7 @@ class _SGNode(object):
 
 	def _read_cBoundedNode(self, f):
 		s = f.read(21)
-		if s != '\x0ccBoundedNode\x00\x00\x00\x00\x05\x00\x00\x00':
+		if s != b'\x0ccBoundedNode\x00\x00\x00\x00\x05\x00\x00\x00':
 			error( 'Error! cBoundedNode header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
@@ -154,7 +154,7 @@ class _SGNode(object):
 
 	def _read_cTransformNode(self, f):
 		s = f.read(23)
-		if s != '\x0ecTransformNode\x62\x64\x24\x65\x07\x00\x00\x00':
+		if s != b'\x0ecTransformNode\x62\x64\x24\x65\x07\x00\x00\x00':
 			error( 'Error! cTransformNode header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
@@ -167,7 +167,7 @@ class _SGNode(object):
 
 	def _read_cExtension_h(self, f):
 		s = f.read(19)
-		if s != '\x0acExtension\x00\x00\x00\x00\x03\x00\x00\x00':
+		if s != b'\x0acExtension\x00\x00\x00\x00\x03\x00\x00\x00':
 			error( 'Error! cExtension header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
@@ -178,44 +178,44 @@ class _SGNode(object):
 	#
 
 	def _write_cSGResource(self, f):
-		f.write('\x0bcSGResource\x00\x00\x00\x00\x02\x00\x00\x00')
-		f.write(chr(len(self.sg_resource_name)) + self.sg_resource_name)
+		f.write(b'\x0bcSGResource\x00\x00\x00\x00\x02\x00\x00\x00')
+		write_str(f, self.sg_resource_name)
 
 	def _write_cCompositionTreeNode(self, f):
-		f.write('\x14cCompositionTreeNode\x00\x00\x00\x00\x0b\x00\x00\x00')
+		f.write(b'\x14cCompositionTreeNode\x00\x00\x00\x00\x0b\x00\x00\x00')
 		self._write_cObjectGraphNode(f)
 		f.write(pack('<l', len(self.child_nodes)))
 		for t in self.child_nodes:
 			f.write(pack('<BBl', *t))
 
 	def _write_cObjectGraphNode(self, f):
-		f.write('\x10cObjectGraphNode\x00\x00\x00\x00\x04\x00\x00\x00')
+		f.write(b'\x10cObjectGraphNode\x00\x00\x00\x00\x04\x00\x00\x00')
 		f.write(pack('<l', len(self.extensions)))
 		for t in self.extensions:
 			f.write(pack('<BBl', *t))
-		f.write(chr(len(self.obj_string)) + self.obj_string)
+		write_str(f, self.obj_string)
 
 	def _write_cRenderableNode(self, f):
-		f.write('\x0fcRenderableNode\x00\x00\x00\x00\x05\x00\x00\x00')
+		f.write(b'\x0fcRenderableNode\x00\x00\x00\x00\x05\x00\x00\x00')
 		self._write_cBoundedNode(f)
 		f.write(pack('<Hl', self.R_number1, self.R_number2))
 		assert self.R_number2 == len(self.R_strings)
 		for s in self.R_strings:
-			f.write(chr(len(s)) + s)
+			write_str(f, s)
 		f.write(self.R_unknown)
 
 	def _write_cBoundedNode(self, f):
-		f.write('\x0ccBoundedNode\x00\x00\x00\x00\x05\x00\x00\x00')
+		f.write(b'\x0ccBoundedNode\x00\x00\x00\x00\x05\x00\x00\x00')
 		self._write_cTransformNode(f)
 
 	def _write_cTransformNode(self, f):
-		f.write('\x0ecTransformNode\x62\x64\x24\x65\x07\x00\x00\x00')
+		f.write(b'\x0ecTransformNode\x62\x64\x24\x65\x07\x00\x00\x00')
 		self._write_cCompositionTreeNode(f)
 		f.write(pack('<3f', *self.T_loc) + pack('<4f', *self.T_rot))
-		f.write('\xff\xff\xff\x7f' if self.T_bone_index==None else pack('<l', self.T_bone_index))
+		f.write(b'\xff\xff\xff\x7f' if self.T_bone_index==None else pack('<l', self.T_bone_index))
 
 	def _write_cExtension_h(self, f):
-		f.write('\x0acExtension\x00\x00\x00\x00\x03\x00\x00\x00')
+		f.write(b'\x0acExtension\x00\x00\x00\x00\x03\x00\x00\x00')
 
 	#
 	# _str_-methods
