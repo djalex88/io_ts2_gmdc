@@ -637,9 +637,10 @@ def begin_export():
 			return
 
 		log()
-		log( '==SKELETON==============================' )
-		log( transform_tree )
-		log()
+		if _save_log:
+			log( '==SKELETON==============================' )
+			log( transform_tree )
+			log()
 
 	s = settings['SGResource']
 	if not s:
