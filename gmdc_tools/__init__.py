@@ -20,8 +20,7 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from _common  import *
-from _gmdc    import *
-from _resfile import *
-from _tree    import *
-
+from ._common  import log, error, set_log_file, close_log_file, chunk, to_hex, print_last_exception
+from ._gmdc    import DataGroup, IndexGroup, GeometryData, create_gmdc_file
+from ._resfile import load_resource, create_resource_file
+from ._tree    import Vector, Matrix, Quaternion, Transform, build_transform_tree
