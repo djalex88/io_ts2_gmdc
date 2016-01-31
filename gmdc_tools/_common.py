@@ -20,11 +20,25 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
+from __future__ import print_function, division
 
-__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex', 'print_last_exception']
+__all__ = ['log', 'error', 'set_log_file', 'close_log_file', 'chunk', 'chain', 'repeat', 'to_hex', 'print_last_exception', 'read_str', 'write_str']
 
 import sys
 from itertools import chain, repeat
+from struct import pack, unpack
+
+if sys.version_info[0] == 3:
+	# Python 3
+	import builtins
+	xrange = range
+	def map(func, *iterables):
+		return list(builtins.map(func, *iterables))
+	def filter(func, iterable):
+		return list(builtins.filter(func, iterable))
+	def zip(*iterables):
+		return list(builtins.zip(*iterables))
+	__all__+= ['xrange', 'map', 'filter', 'zip']
 
 def set_log_file(f):
 	global log_file
@@ -37,15 +51,16 @@ def close_log_file():
 
 def log(*args):
 	s = '\x20'.join(str(x) for x in args)
-	print s
-	if log_file != None: print >> log_file, s
+	print(s)
+	if log_file != None: print(s, file=log_file)
 
 def error(*args):
 	s = '\x20'.join(str(x) for x in args)
-	print >> sys.stderr, s
-	if log_file != None: print >> log_file, s
+	print(s, file=sys.stderr)
+	if log_file != None: print(s, file=log_file)
 
 def to_hex(s):
+	if isinstance(s, bytes): s = s.decode('latin_1')
 	return '\x20'.join('%02X'%ord(x) for x in s)
 
 def chunk(seq, sublen):
@@ -59,5 +74,13 @@ def print_last_exception():
 		c = tb.tb_frame.f_code
 		error( '\x20\x20'*i + '--Function: "%s" in "%s", line: %i' % (c.co_name, c.co_filename, tb.tb_lineno) )
 		tb = tb.tb_next ; i+= 1
+
+def read_str(f):
+	i = unpack('B', f.read(1))[0]
+	return f.read(i).decode('latin_1')
+
+def write_str(f, s):
+	s = s.encode('latin_1')
+	f.write(pack('B', len(s)) + s)
 
 log_file = None
