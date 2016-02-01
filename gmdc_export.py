@@ -48,7 +48,7 @@ def prepare_geometry(transform_tree, settings):
 	# check whether visual transforms applied
 	v = [obj for obj in objects if tuple(obj.rot)!=(0, 0, 0) or tuple(obj.size)!=(1, 1, 1)]
 	if v:
-		error( 'Error! The following mesh ' + ('objects have' if len(v)>1 else 'object has') + 'non-applied visual transforms:' )
+		error( 'Error! The following mesh ' + ('objects have' if len(v)>1 else 'object has') + ' non-applied visual transforms:' )
 		for obj in v:
 			error( '\x20\x20%s -> rot: %s, size: %s' % (str(obj), str(obj.rot), str(obj.size)) )
 		error( 'Solution: apply visual transforms.' )
