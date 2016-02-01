@@ -165,7 +165,7 @@ def create_objects(geometry, transform_tree, settings):
 		obj.name = group.name
 
 		# save original name and flags
-		obj.addProperty('name', group.name)
+		obj.addProperty('name', group.name.encode('latin_1'))
 		obj.addProperty('flags', '%08X' % group.flags)
 
 		mesh_objects.append(obj) # save reference to current object
