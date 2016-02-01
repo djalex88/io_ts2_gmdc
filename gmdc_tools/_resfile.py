@@ -223,8 +223,7 @@ class DataListExtension(_SGNode):
 	def __str__(self):
 		s = 'cDataListExtension'
 		if self.Ext_data[1] == 'footprint':
-			s+= '\x20(footprint)\n'
-			s+= '\n'.join('--Footprint pattern "%s":\n' % name + _str_footprint(data) for i, name, data in self.Ext_data[2])
+			s+= '\x20(footprint)\n' + str_footprint(self.Ext_data[2])
 		else:
 			s+= '\n' + self._str_ext_data(self.Ext_data)
 		return s
@@ -634,26 +633,30 @@ def create_resource_file(filename, res):
 
 #-------------------------------------------------------------------------------
 
-def _str_footprint(data):
+def str_footprint(footprint):
 
-	w = dict((s, v) for i, s, v in data)
+	def str_footprint_pattern(data):
 
-	minx = w['minx']
-	maxx = w['maxx']
-	miny = w['miny']
-	maxy = w['maxy']
+		w = dict((s, v) for i, s, v in data)
 
-	s = ''
+		minx = w['minx']
+		maxx = w['maxx']
+		miny = w['miny']
+		maxy = w['maxy']
 
-	for y in xrange(maxy, miny-1, -1):
-		ss = [str()]*16
-		for x in xrange(minx, maxx+1):
-			key = '(%i,%i)' % (x, y)
-			v = w[key]
-			for i, j in zip(xrange(0, 32, 2), xrange(15, -1, -1)):
-				a = unpack('<H', v[i:i+2])[0]
-				ss[j]+= "".join(reversed(format(a, '016b').replace('0', '.').replace('1', 'X'))) + '\x20'
-			s+= key.ljust(16) + '\x20'
-		s+= '\n' + '\n'.join(ss) + ('\n' if y!=miny else '')
-	return s
+		s = ''
+
+		for y in xrange(maxy, miny-1, -1):
+			ss = [str()]*16
+			for x in xrange(minx, maxx+1):
+				key = '(%i,%i)' % (x, y)
+				v = w[key]
+				for i, j in zip(xrange(0, 32, 2), xrange(15, -1, -1)):
+					a = unpack('<H', v[i:i+2])[0]
+					ss[j]+= "".join(reversed(format(a, '016b').replace('0', '-').replace('1', 'X'))) + '\x20'
+				s+= key.ljust(16) + '\x20'
+			s+= '\n' + '\n'.join(ss) + ('\n' if y!=miny else '')
+		return s
+
+	return '\n'.join('--Footprint pattern "%s":\n' % name + str_footprint_pattern(data) for i, name, data in footprint)
 
