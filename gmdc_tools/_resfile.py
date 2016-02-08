@@ -489,9 +489,25 @@ class ResourceFile(object):
 		if filename != None: self.load(filename, log_level)
 
 	def _clear(self):
+		self.filename = None
 		self.linked_resources = list()
 		self.nodes = list()
 		self.sg_resource_name = None
+
+	def __str__(self):
+		s = 'ResourceFile\n'
+		if self.filename: s+= '--Filename: "%s"\n' % self.filename
+		if self.sg_resource_name: s+= '--Resource name: "%s"\n' % self.sg_resource_name
+		s+= '--Linked resources (%i):\n' % len(self.linked_resources)
+		for t in self.linked_resources:
+			s+= '\x20\x20%08X - %08X - %08X - %08X\n' % t
+		s+= '--Number of nodes: %i' % len(self.nodes)
+		return s
+
+	def __repr__(self):
+		return self.__str__()
+
+	#---------------------------------------
 
 	def load(self, filename, log_level=1):
 
@@ -505,11 +521,12 @@ class ResourceFile(object):
 				self._clear()
 				return False
 
-		if self.nodes:
-			try:
-				self.sg_resource_name = self.nodes[0].sg_resource_name
-			except:
-				self.sg_resource_name = '?'
+		self.filename = filename
+
+		try:
+			self.sg_resource_name = self.nodes[0].sg_resource_name
+		except:
+			pass
 
 		return True
 
@@ -576,12 +593,19 @@ class ResourceFile(object):
 
 		return True
 
-	def create_file(self, filename):
+	#---------------------------------------
+
+	def save(self):
+
+		with open(self.filename, 'wb') as f:
+			self._write_resource_file(f)
+
+	def save_as(self, filename):
 
 		with open(filename, 'wb') as f:
-			self._create_resource_file(f)
+			self._write_resource_file(f)
 
-	def _create_resource_file(self, f):
+	def _write_resource_file(self, f):
 
 		f.write(b'\x01\x00\xff\xff')
 
@@ -608,27 +632,13 @@ class ResourceFile(object):
 		for node in self.nodes:
 			node.write(f)
 
-	def __str__(self):
-		if self.sg_resource_name == None: return 'no resource loaded'
-		s = 'Resource name: "%s"\n' % self.sg_resource_name
-		s+= 'Linked resources (%i):\n' % len(self.linked_resources)
-		for t in self.linked_resources:
-			s+= '%08X - %08X - %08X - %08X\n' % t
-		s+= 'Number of nodes: %i' % len(self.nodes)
-		return s
+#<- /ResourceFile
 
-	def __repr__(self):
-		return self.__str__()
-		
 
 def load_resource(filename, log_level=1):
 
 	res = ResourceFile()
 	return res if res.load(filename, log_level) else False
-
-def create_resource_file(filename, res):
-
-	res.create_file(filename)
 
 
 #-------------------------------------------------------------------------------
