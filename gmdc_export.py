@@ -31,6 +31,7 @@ Tooltip: 'Export to TS2 GMDC file' """
 import os
 from struct import pack
 from gmdc_tools import *
+from itertools import count, repeat
 
 import bpy, Blender
 from Blender import Draw
@@ -40,10 +41,12 @@ from Blender.Mathutils import Vector as BlenderVector
 ##  Exporter
 ########################################
 
-def prepare_geometry(transform_tree, settings):
+def prepare_geometry(settings):
+
+	scene = bpy.data.scenes.active
 
 	# get all mesh objects
-	objects = filter(lambda obj: obj.type=='Mesh', bpy.data.scenes.active.objects)
+	objects = filter(lambda obj: obj.type=='Mesh', scene.objects)
 
 	# check whether visual transforms applied
 	v = [obj for obj in objects if tuple(obj.rot)!=(0, 0, 0) or tuple(obj.size)!=(1, 1, 1)]
@@ -54,18 +57,35 @@ def prepare_geometry(transform_tree, settings):
 		error( 'Solution: apply visual transforms.' )
 		return False
 
-	if settings['export_shape']:
-		# does shape mesh exist?
-		v = [i for i, obj in enumerate(objects) if obj.name == settings['shape_name']]
+	if settings['export_bmesh']:
+		# does bounding mesh exist?
+		v = [i for i, obj in enumerate(objects) if obj.name == settings['bmesh_name']]
 		if not v:
-			error( 'Error! Could not find shape mesh.' )
+			error( 'Error! Could not find bounding mesh.' )
 			return False
-		# remove shape from objects
+		# remove from objects
 		del objects[ v[0] ]
 
 	if not objects:
 		error( 'Error! Object list is empty.' )
 		return False
+
+	#
+	# inverse transforms
+	#
+
+	inverse_transforms = None
+
+	if settings['export_rigging']:
+
+		if scene.properties.has_key('gmdc_inverse_transforms'):
+			v = tuple(scene.properties['gmdc_inverse_transforms'])
+			assert len(v)%7 == 0
+			v = [chunk(t, 4) for t in chunk(v, 7)]
+			inverse_transforms = v
+		else:
+			error( 'Error! No inverse transforms. (scene.properties["gmdc_inverse_transforms"] is not defined.)' )
+			return False
 
 	#
 	# process main geometry
@@ -82,7 +102,7 @@ def prepare_geometry(transform_tree, settings):
 		log( str(obj) )
 
 		# make current object active and activate basic shape key
-		bpy.data.scenes.active.objects.active = obj
+		scene.objects.active = obj
 		obj.activeShape = 1
 		Blender.Window.EditMode(1)
 		Blender.Window.EditMode(0)
@@ -91,45 +111,32 @@ def prepare_geometry(transform_tree, settings):
 
 		all_vertices = [] # for non-indexed vertices
 
-		rigging = settings['export_rigging']
 		bone_indices = {} # used to enumerate bones { global_bone_index -> local_bone_index }
 
 		# faces
 		#
 		mesh_faces = mesh.faces
-		x = False
-		if settings['use_obj_props']:
-			try:
-				x = obj.getProperty('selected_only')
-				assert x.type == 'BOOL'
-			except AssertionError:
-				log( 'Warning! Invalid data for property "selected_only". (Must be boolean.) Ignored.' )
-			except:
-				pass
-			else:
-				x = x.data
-			if x:
-				# only selected faces
-				mesh_faces = filter(lambda f: f.sel, mesh_faces)
-				log( '--Exporting only selected faces (%i)' % len(mesh_faces) )
 		if not mesh_faces:
-			error( 'Error! There are no faces to export in mesh object "%s".%s' % (obj.name, '\x20(Property "selected_only" is True)' if x else '') )
+			error( 'Error! Mesh object has no faces.' )
 			return False
 
 		# all faces must have texture coordinates
 		try:
 			assert all(face.uv for face in mesh_faces)
 		except:
-			error( 'Error! Mesh object "%s" has faces with no texture coordinates.' % obj.name )
+			error( 'Error! Mesh object has faces with no texture coordinates.' )
 			return False
 
 		# tangents
 		if settings['export_tangents']:
 			mesh_tangents = [[tuple(x.xyz) for x in tangents] for tangents in mesh.getTangents()]
 		else:
-			mesh_tangents = ([(0.0, 0.0, 0.0)]*4 for i in xrange(len(mesh.faces))) # generator of default tangent vectors
+			mesh_tangents = repeat((None, None, None, None)) # no tangents
 
 		obj_loc = obj.matrix[3].xyz
+
+		# rigging
+		rigging = settings['export_rigging']
 
 		for face, tangents in zip(mesh_faces, mesh_tangents):
 			verts = [tuple( (v.co + obj_loc).xyz ) for v in face.verts]
@@ -143,21 +150,25 @@ def prepare_geometry(transform_tree, settings):
 					b = tuple()
 					w = tuple()
 					for name, f in v_groups:
-						# get bone index (add new if needed)
+						# get bone index
+						s = name.split('#')
 						try:
-							i = transform_tree.get_node(name).bone_index
-							assert isinstance(i, int)
-						except (KeyError, AssertionError):
-							log( '--No bone named "%s". Influence of group "%s" on vertex No. %i ignored.' % (name, name, v.index) )
+							assert f > 0.0
+							idx = int(s[-1])
+							if len(s) < 2 or idx < 0: raise Exception()
+						except AssertionError:
+							pass
+						except:
+							log( 'Warning! Could not extract bone index from vertex group name "%s". Influence on vertex # %i ignored.' % (name, v.index) )
 						else:
-							k = bone_indices.get(i)
+							k = bone_indices.get(idx)
 							if k == None:
 								k = len(bone_indices)
-								bone_indices[i] = k
+								bone_indices[idx] = k
 							b+= (k,)
 							w+= (f,)
 					if len(b) > 4:
-						error( 'Error! Vertex No. %i of mesh object "%s" is in more that 4 vertex groups.' % (v.index, obj.name) )
+						error( 'Error! Vertex # %i of mesh object "%s" is in more that 4 vertex groups.' % (v.index, obj.name) )
 						return False
 					# normalize weights
 					f = sum(w)
@@ -210,6 +221,10 @@ def prepare_geometry(transform_tree, settings):
 			for k, key_block in enumerate(mesh.key.blocks[1:], 2):
 
 				name = tuple(key_block.name.strip().split('::'))
+				if len(name) != 2:
+					error( 'Error! Invalid morph name: "%s"' % '::'.join(name) )
+					return False
+
 				try:
 					j = MORPH_NAMES.index(name)
 				except ValueError:
@@ -302,10 +317,10 @@ def prepare_geometry(transform_tree, settings):
 
 				if morphing == 2:
 					dNorms = [(tuple(dn) + ((0.0, 0.0, 0.0),)*4)[:j] for dn in dNorms]
-					for i, k, dv, dn in zip(xrange(len(all_vertices)), keys, dVerts, dNorms):
+					for i, k, dv, dn in zip(count(), keys, dVerts, dNorms):
 						all_vertices[i]+= (k, dv, dn)
 				else:
-					for i, k, dv     in zip(xrange(len(all_vertices)), keys, dVerts):
+					for i, k, dv     in zip(count(), keys, dVerts):
 						all_vertices[i]+= (k, dv)
 
 			dVerts = dNorms = None ; keys = None
@@ -357,11 +372,11 @@ def prepare_geometry(transform_tree, settings):
 		if group:
 			k = group.count
 			indices = map(lambda x: x+k, indices) # shift indices
-			log( '--Extending group', ref_group )
+			log( '--Extending group #', ref_group )
 		else:
 			ref_group = len(DATA_GROUPS)
 			group = DataGroup() ; DATA_GROUPS.append(group)
-			log( '--Creating new group', ref_group )
+			log( '--Creating new group #', ref_group )
 
 		# add vertices to group
 		#
@@ -391,8 +406,6 @@ def prepare_geometry(transform_tree, settings):
 		# create index group
 		#
 
-		log( '--Creating new index group', len(INDEX_GROUPS), '(triangles: %i)' % (len(indices)/3) )
-
 		# name
 		name = obj.name
 		if settings['use_obj_props']:
@@ -405,6 +418,8 @@ def prepare_geometry(transform_tree, settings):
 				pass
 			else:
 				name = x.data
+
+		log( '--Creating new index group # %i, "%s" (triangles: %i)' % (len(INDEX_GROUPS), name, len(indices)/3) )
 
 		group = IndexGroup(name) ; INDEX_GROUPS.append(group)
 		group.data_group_index = ref_group
@@ -435,104 +450,101 @@ def prepare_geometry(transform_tree, settings):
 			# order items by local bone index
 			bone_indices = sorted(bone_indices.iteritems(), None, key=lambda x: x[1])
 			# put global indices
-			group.bones = [x[0] for x in bone_indices]
+			group.bones = []
+			for idx, j in bone_indices:
+				if idx >= len(inverse_transforms):
+					error( 'Error! No inverse transform for bone # %i.' % idx )
+					return False
+				group.bones.append(idx)
 
 		bone_indices = None
 
 	#<- objects
 
 	#
-	# inverse transforms
+	# bounding geometry
 	#
 
-	inverse_transforms = None
+	static_bmesh = None ; dynamic_bmesh = None
 
-	if settings['export_rigging']:
-		dd = {}
-		for node in transform_tree:
-			if node.bone_index != None:
-				dd[node.bone_index] = node.abs_transform.get_inverse()
-		if dd:
-			inverse_transforms = [None]*(max(dd)+1)
-			for i, t in dd.iteritems():
-				inverse_transforms[i] = (t.rot.to_tuple(), t.loc.to_tuple())
-			for i, t in enumerate(inverse_transforms):
-				if not t:
-					inverse_transforms[i] = ((0.,0.,0.,1.), (0.,0.,0.))
-			log( 'Inverse transforms:', len(inverse_transforms) )
-		dd = None
+	if settings['export_bmesh']:
 
-	#
-	# shape
-	#
+		bmesh_obj = Blender.Object.Get(settings['bmesh_name'])
+		mesh = bmesh_obj.getData(mesh=True)
 
-	static_shape = None ; dynamic_shape = None
+		obj_loc = bmesh_obj.matrix[3].xyz
 
-	if settings['export_shape']:
-
-		shape_obj = Blender.Object.Get(settings['shape_name'])
-		mesh = shape_obj.getData(mesh=True)
-
-		obj_loc = shape_obj.matrix[3].xyz
-
-		log( 'Shape object %s:' % shape_obj )
+		log( 'Bounding mesh object %s:' % bmesh_obj )
 
 		if settings['export_rigging']:
 
-			bone_indices = set(node.bone_index for node in transform_tree if node.bone_index!=None)
-			if bone_indices:
+			dynamic_bmesh = []
 
-				dynamic_shape = []
-				vert_group_names = set(mesh.getVertGroupNames())
+			v_groups = {} # { bone_index -> v_group_name }
+			for name in mesh.getVertGroupNames():
+				# get bone index
+				s = name.split('#')
+				try:
+					idx = int(s[-1])
+					if len(s) < 2 or idx < 0: raise Exception()
+				except:
+					error( 'Error! Could not extract bone index from vertex group name "%s".' % name )
+					return False
+				v_groups[idx] = name
 
-				for k in xrange(max(bone_indices)+1):
-					if k in bone_indices:
-						node = transform_tree.get_node(k)
-						if node.name in vert_group_names:
-							indices = set(v[0] for v in mesh.getVertsFromGroup(node.name, 1) if v[1] > 0.0) # do not accept vertices with weight == 0
-							I = [] ; dd = {}
-							for face in mesh.faces:
-								vi = [v.index for v in face.verts]
-								flags = sum(2**i for i, j in enumerate(vi) if j in indices)
-								if (flags & 0b0111) == 0b0111: # (0, 1, 2)
-									I.extend([
-										dd.setdefault(vi[0], len(dd)),
-										dd.setdefault(vi[1], len(dd)),
-										dd.setdefault(vi[2], len(dd))])
-								if (flags & 0b1101) == 0b1101: # (0, 2, 3)
-									I.extend([
-										dd.setdefault(vi[0], len(dd)),
-										dd.setdefault(vi[2], len(dd)),
-										dd.setdefault(vi[3], len(dd))])
-							if dd:
-								V = []
+			for idx in xrange(max(v_groups)+1):
 
-								# get inverse transform
-								t = node.abs_transform.get_inverse()
+				if idx in v_groups:
 
-								dd = sorted(dd.iteritems(), None, key=lambda x: x[1])
+					indices = set(v[0] for v in mesh.getVertsFromGroup(v_groups[idx], 1) if v[1] > 0.0) # do not accept vertices with weight == 0
 
-								# set coords
-								for i, j in dd:
-									# transform coord into bone space
-									a = mesh.verts[i].co.xyz + obj_loc
-									a = t.transformPoint( Vector(a.x, a.y, a.z) ).to_tuple()
-									V.append(a)
+					I = [] ; dd = {}
+					for face in mesh.faces:
+						vi = [v.index for v in face.verts]
+						flags = sum(2**i for i, j in enumerate(vi) if j in indices)
+						if (flags & 0b0111) == 0b0111: # (0, 1, 2)
+							I.extend([
+								dd.setdefault(vi[0], len(dd)),
+								dd.setdefault(vi[1], len(dd)),
+								dd.setdefault(vi[2], len(dd))])
+						if (flags & 0b1101) == 0b1101: # (0, 2, 3)
+							I.extend([
+								dd.setdefault(vi[0], len(dd)),
+								dd.setdefault(vi[2], len(dd)),
+								dd.setdefault(vi[3], len(dd))])
+					if dd:
+						V = []
 
-								I = chunk(I, 3)
+						# get inverse transform
+						#
+						if idx >= len(inverse_transforms):
+							error( 'Error! No inverse transform for bone # %i.' % idx )
+							return False
 
-								dynamic_shape.append((V, I))
-								log( '--Part # %02i -> vertices: %i, triangles: %i' % (k, len(V), len(I)) )
+						rot, loc = inverse_transforms[idx]
+						t = Transform(loc, rot)
 
-							else:
-								dynamic_shape.append(None)
-						else:
-							dynamic_shape.append(None)
+						dd = sorted(dd.iteritems(), None, key=lambda x: x[1])
+
+						# set coords
+						for i, j in dd:
+							# transform coord into bone space
+							a = mesh.verts[i].co.xyz + obj_loc
+							a = t.transformPoint( Vector(a.x, a.y, a.z) ).to_tuple()
+							V.append(a)
+
+						I = chunk(I, 3)
+
+						dynamic_bmesh.append((V, I))
+						log( '--Part # %02i -> vertices: %i, triangles: %i' % (idx, len(V), len(I)) )
+
 					else:
-						dynamic_shape.append(None)
+						dynamic_bmesh.append(None)
+				else:
+					dynamic_bmesh.append(None)
 
-				if not any(dynamic_shape):
-					dynamic_shape = None
+			if not any(dynamic_bmesh):
+				dynamic_bmesh = None
 
 		else:
 			V = [tuple( (v.co + obj_loc).xyz ) for v in mesh.verts]
@@ -543,11 +555,11 @@ def prepare_geometry(transform_tree, settings):
 				else:
 					I.append( (face.verts[0].index, face.verts[1].index, face.verts[2].index) )
 					I.append( (face.verts[0].index, face.verts[2].index, face.verts[3].index) )
-			static_shape = (V, I)
+			static_bmesh = (V, I)
 
-			log( '--Static shape -> vertices: %i, triangles: %i' % (len(V), len(I)) )
+			log( '--Static bounding mesh -> vertices: %i, triangles: %i' % (len(V), len(I)) )
 
-	return GeometryData(DATA_GROUPS, INDEX_GROUPS, inverse_transforms, MORPH_NAMES, static_shape, dynamic_shape)
+	return GeometryData(DATA_GROUPS, INDEX_GROUPS, inverse_transforms, MORPH_NAMES, static_bmesh, dynamic_bmesh)
 
 
 #-------------------------------------------------------------------------------
@@ -562,8 +574,8 @@ def begin_export():
 		'name_suffix':      btn_name_suffix.val,
 		'export_rigging':   btn_export_rigging.val,
 		'export_tangents':  btn_export_tangents.val,
-		'export_shape':     btn_export_shape.val,
-		'shape_name':       str_shape_name.val.strip(),
+		'export_bmesh':     btn_export_bmesh.val,
+		'bmesh_name':       str_bmesh_name.val.strip(),
 		'export_morphs':    menu_export_morphs.val,
 		'use_obj_props':    btn_use_obj_props.val,
 		}
@@ -571,7 +583,6 @@ def begin_export():
 	_save_log = bool(btn_save_log.val)
 
 	gmdc_filename = str_gmdc_filename.val.strip()
-	cres_filename = str_cres_filename.val.strip()
 
 	if not gmdc_filename:
 		display_menu('Error!', ['Select filename for GMDC file.']) ; return
@@ -580,12 +591,8 @@ def begin_export():
 	elif os.path.isfile(gmdc_filename):
 		if display_menu("File '%s' exists. Rewrite?" % os.path.basename(gmdc_filename), ['Yes, rewrite.']) != 0: return
 
-	if settings['export_shape'] and not settings['shape_name']:
-		display_menu('Error!', ['Enter shape object name.'])
-		return
-
-	if settings['export_rigging'] and not cres_filename:
-		display_menu('Error!', ['You need to provide resource node file to export rigging data.'])
+	if settings['export_bmesh'] and not settings['bmesh_name']:
+		display_menu('Error!', ['Enter bounding mesh\'s object name.'])
 		return
 
 	# create log file (if needed)
@@ -607,40 +614,16 @@ def begin_export():
 
 	log( '==Geometry Data Container Exporter======' )
 	log( 'GMDC File:', gmdc_filename )
-	log( 'CRES File:', cres_filename )
 	log( 'Settings:' )
-	log( '--SGResource:       ', settings['SGResource'] )
+	log( '--SGResource:',        settings['SGResource'] and '"%s"' % settings['SGResource'] or 'none' )
 	log( '--Name suffix:      ', settings['name_suffix'] )
 	log( '--Export rigging:   ', settings['export_rigging'] )
 	log( '--Export tangents:  ', settings['export_tangents'] )
-	log( '--Export shape:     ', settings['export_shape'] )
-	log( '--Shape name:       ', settings['shape_name'] )
+	log( '--Export bounding geometry:', settings['export_bmesh'] )
+	log( '--Bounding mesh name:',settings['bmesh_name'] and '"%s"' % settings['bmesh_name'] or 'none' )
 	log( '--Export morphs:    ', settings['export_morphs'] )
 	log( '--Use properties:   ', settings['use_obj_props'] )
 	log()
-
-	transform_tree = None
-	if cres_filename:
-		# load skeleton
-		log( 'Opening CRES file "%s"...' % cres_filename )
-		try:
-			res = load_resource(cres_filename, _save_log and 2 or 1)
-			if res and res.nodes[0].type == 'cResourceNode':
-				transform_tree = build_transform_tree(res.nodes)
-			else:
-				res and error( 'Not a CRES file!' )
-		except:
-			print_last_exception()
-		if not transform_tree:
-			close_log_file()
-			display_menu('Error!', ['Could not load resource node file. See log for details.'])
-			return
-
-		log()
-		if _save_log:
-			log( '==SKELETON==============================' )
-			log( transform_tree )
-			log()
 
 	s = settings['SGResource']
 	if not s:
@@ -652,7 +635,7 @@ def begin_export():
 	log( 'Preparing geometry...' )
 	geometry = None
 	try:
-		geometry = prepare_geometry(transform_tree, settings)
+		geometry = prepare_geometry(settings)
 	except:
 		print_last_exception()
 	if not geometry:
@@ -682,17 +665,21 @@ def begin_export():
 ##  GUI
 ########################################
 
-def display_menu(caption, items):
-	return Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+def display_menu(caption, items, choice_required=False):
+	b = True
+	while b:
+		choice = Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+		b = choice_required and choice < 0
+	return choice
 
 
 def draw_gui():
 
 	global str_gmdc_filename, str_cres_filename, str_resource_name, btn_name_suffix, \
-		btn_export_tangents, btn_export_rigging, btn_export_shape, btn_save_log, \
-		menu_export_morphs, btn_use_obj_props, str_shape_name
+		btn_export_tangents, btn_export_rigging, btn_export_bmesh, btn_save_log, \
+		menu_export_morphs, btn_use_obj_props, str_bmesh_name
 
-	pos_y = 390 ; MAX_PATH = 200
+	pos_y = 340 ; MAX_PATH = 200
 
 	# frame
 
@@ -719,17 +706,6 @@ def draw_gui():
 	Draw.PushButton("Select file", 0x11, 320, pos_y, 100, 20, "Open file browser")
 	Draw.EndAlign()
 
-	pos_y-= 30
-
-	# resource node file selector
-
-	Draw.Label("Resource node file", 20, pos_y, 200, 20)
-	pos_y-= 20
-	Draw.BeginAlign()
-	str_cres_filename = Draw.String("", 0x20, 20, pos_y, 300, 20, str_cres_filename.val, MAX_PATH, "Path to resource node file")
-	Draw.PushButton("Select file", 0x21, 320, pos_y, 100, 20, "Open file browser")
-	Draw.EndAlign()
-
 	pos_y-= 35
 
 	# geometry name
@@ -751,7 +727,7 @@ def draw_gui():
 	Draw.BeginAlign()
 	btn_export_rigging = Draw.Toggle("Rigging", 0x31, 20, pos_y, 100, 20, btn_export_rigging.val, "Export rigging data (bone indices, weights)")
 	btn_export_tangents = Draw.Toggle("Tangents", 0x32, 120, pos_y, 100, 20, btn_export_tangents.val, "Export tangents (required for bump mapping)")
-	btn_export_shape = Draw.Toggle("Shape", 0x33, 220, pos_y, 100, 20, btn_export_shape.val, "Export shape mesh (it will make object selectable in game)")
+	btn_export_bmesh = Draw.Toggle("Bound. mesh", 0x33, 220, pos_y, 100, 20, btn_export_bmesh.val, "Export bounding geometry")
 	btn_save_log = Draw.Toggle("Save log", 0x34, 320, pos_y, 100, 20, btn_save_log.val, "Write script's log data into file *.export_log.txt")
 	Draw.EndAlign()
 
@@ -764,10 +740,10 @@ def draw_gui():
 
 	pos_y-= 30
 
-	# shape object
+	# bounding mesh name
 
-	Draw.Label("Shape mesh:", 20, pos_y, 100, 20)
-	str_shape_name = Draw.String("", 0x40, 120, pos_y, 200, 20, str_shape_name.val, 50, "Name of object that will be exported as shape mesh")
+	Draw.Label("Bounding mesh:", 20, pos_y, 100, 20)
+	str_bmesh_name = Draw.String("", 0x40, 120, pos_y, 200, 20, str_bmesh_name.val, 50, "Name of mesh object that will be exported as bounding mesh")
 
 	pos_y-= 50
 
@@ -789,10 +765,6 @@ def set_gmdc_filename(filename):
 	global gmdc_filename
 	str_gmdc_filename.val = filename
 
-def set_cres_filename(filename):
-	global cres_filename
-	str_cres_filename.val = filename
-
 def event_handler(evt, val):
 	global l_ctrl_key_pressed, r_ctrl_key_pressed
 	if evt == Draw.ESCKEY and val:
@@ -811,23 +783,20 @@ def button_events(evt):
 		begin_export()
 	elif evt == 0x11:
 		Blender.Window.FileSelector(set_gmdc_filename, 'Select', Blender.sys.makename(ext='.gmdc'))
-	elif evt == 0x21:
-		Blender.Window.FileSelector(set_cres_filename, 'Select')
 
 
 #-------------------------------------------------------------------------------
 # set default values for GUI elements and run event loop
 
 str_gmdc_filename   = Draw.Create("")
-str_cres_filename   = Draw.Create("")
 str_resource_name   = Draw.Create("")
 btn_name_suffix     = Draw.Create(1)
 btn_export_rigging  = Draw.Create(0)
 btn_export_tangents = Draw.Create(0)
-btn_export_shape    = Draw.Create(0)
+btn_export_bmesh    = Draw.Create(0)
 btn_save_log        = Draw.Create(0)
 btn_use_obj_props   = Draw.Create(0)
 menu_export_morphs  = Draw.Create(0)
-str_shape_name      = Draw.Create("Shape")
+str_bmesh_name      = Draw.Create("b_mesh")
 
 Draw.Register(draw_gui, event_handler, button_events)
