@@ -21,7 +21,7 @@
 #-------------------------------------------------------------------------------
 
 
-__all__ = ['load_resource', 'create_resource_file']
+__all__ = ['load_resource']
 
 from struct import pack, unpack
 
