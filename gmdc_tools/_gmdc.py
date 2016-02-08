@@ -55,13 +55,13 @@ class IndexGroup(object):
 		self.flags = 0xffffffff
 
 class GeometryData(object):
-	def __init__(self, data_groups, index_groups, inverse_transforms=None, morph_names=None, static_shape=None, dynamic_shape=None):
+	def __init__(self, data_groups, index_groups, inverse_transforms=None, morph_names=None, static_bmesh=None, dynamic_bmesh=None):
 		self.data_groups = data_groups
 		self.index_groups = index_groups
 		self.inverse_transforms = inverse_transforms
 		self.morph_names = morph_names
-		self.static_shape = static_shape
-		self.dynamic_shape = dynamic_shape
+		self.static_bmesh = static_bmesh
+		self.dynamic_bmesh = dynamic_bmesh
 
 	def remove_doubles(self):
 		_rm_doubles(self)
@@ -107,8 +107,11 @@ class GeometryDataContainer(_SGNode):
 			s+= '\x20\x20%i - Name: "%s", triangles: %i, data group: %i\n' % (i, group.name, len(group.indices), group.data_group_index)
 		s+= '--Inverse transforms: ' + (str(len(g.inverse_transforms)) if g.inverse_transforms else 'None') + '\n'
 		s+= '--Morphs: ' + (str(len(g.morph_names)) if g.morph_names else 'None') + '\n'
-		s+= '--Shapes: ' + (str(filter(bool, ['static' if g.static_shape else '', 'dynamic (%i)'%len(g.dynamic_shape) if g.dynamic_shape else ''])) or 'None')
+		s+= '--Bounding geometry: ' + (str(filter(bool, ['static' if g.static_bmesh else '', 'dynamic (%i)'%len(g.dynamic_bmesh) if g.dynamic_bmesh else ''])) or 'None')
 		return s
+
+	def __repr__(self):
+		return self.__str__()
 
 
 ########################################
@@ -132,7 +135,9 @@ def _load_geometry_data(f, log_level):
 		b'\x6A\x3A\x6F\xCB': ('DiffNorms',  'dN'),
 		b'\xDC\xCF\xF2\xDC': ('DiffKeys',    'K'),
 		b'\x95\x07\x83\xDB': ('DeformMask',  'M'),
-		b'\x82\xEE\x4D\x7C': ('0x7C4DEE82',  'U'),
+		b'\x82\xEE\x4D\x7C': ('0x7C4DEE82',  '1'),
+		b'\x5C\xFC\x4A\x5C': ('0x5C4AFC5C',  '2'),
+		b'\x56\xFC\x4A\x1C': ('0x1C4AFC56',  '3'),
 		}
 
 	if log_level:
@@ -204,16 +209,19 @@ def _load_geometry_data(f, log_level):
 			data = chunk(unpack('%iB'%j, f.read(j)), 4)
 			SECTIONS.append( (s2, sub_idx, data) )
 
-		else: # 0x7C4DEE82 (normals/morphs ?)
+		else: # 0x7C4DEE82, 0x5C4AFC5C, 0x1C4AFC56
 
-			V = chunk(unpack('<%if'%(j//4), f.read(j)), 3)
+			# component count
+			cc = type_of_data + 1
+
+			V = chunk(unpack('<%if'%(j//4), f.read(j)), cc)
 
 			log_level>1 and log( '--Number of vectors, indices:', len(V) )
 
 
-		# indices (only for 0x7C4DEE82)
+		# indices
 		#
-		if s1 == '0x7C4DEE82' and 'V' in dir() and V != None:
+		if s1 in ('0x7C4DEE82', '0x5C4AFC5C', '0x1C4AFC56') and 'V' in dir() and V != None:
 
 			i = unpack('<l', f.read(4))[0]
 			s = f.read(i*2)
@@ -290,6 +298,11 @@ def _load_geometry_data(f, log_level):
 		# again number of sections (?)
 		j = unpack('<l', f.read(4))[0]
 		assert j == i # ?
+
+		# validate rigging data
+		if group.bones and not group.weights:
+			error( 'Error! Incorrect rigging data. (no weights)' )
+			return False
 
 		# validate morph data
 		i = sum(2**i for i, v in enumerate(group.dVerts) if v)
@@ -412,12 +425,12 @@ def _load_geometry_data(f, log_level):
 	else:
 		MORPH_NAMES = None
 
-	# static shape
+	# static bounding mesh
 	#
 	i = unpack('<l', f.read(4))[0]
 	if i:
 		j = unpack('<l', f.read(4))[0]
-		log_level and log( 'Static shape @ %08x' % (f.tell()-4) + (':' if log_level>1 else '') )
+		log_level and log( 'Static bounding mesh @ %08x' % (f.tell()-4) + (':' if log_level>1 else '') )
 		if log_level > 1:
 			log( '--Vertices:', i )
 			log( '--Indices:', j )
@@ -425,16 +438,16 @@ def _load_geometry_data(f, log_level):
 		# read data
 		V = chunk(unpack('<%if'%(i*3), f.read(i*12)), 3)
 		I = chunk(unpack('<%iH'%j, f.read(j*2)), 3)
-		static_shape = (V, I)
+		static_bmesh = (V, I)
 	else:
-		static_shape = None
+		static_bmesh = None
 
-	# dynamic shape
+	# dynamic bounding mesh
 	#
 	i = unpack('<l', f.read(4))[0]
 	if i:
-		log_level and log( 'Dynamic shape parts (%i)' % i + (':' if log_level>1 else '') )
-		dynamic_shape = []
+		log_level and log( 'Dynamic bounding mesh parts (%i)' % i + (':' if log_level>1 else '') )
+		dynamic_bmesh = []
 		for k in xrange(i):
 			offset = f.tell()
 			i = unpack('<l', f.read(4))[0]
@@ -444,20 +457,20 @@ def _load_geometry_data(f, log_level):
 				# read data
 				V = chunk(unpack('<%if'%(i*3), f.read(i*12)), 3)
 				I = chunk(unpack('<%iH'%j, f.read(j*2)), 3)
-				dynamic_shape.append((V, I))
+				dynamic_bmesh.append((V, I))
 
 				log_level>1 and log( '--Part # %02i @ %08x -> vertices: %i, indices: %i' % (k, offset, len(V), len(I)) )
 			else:
-				dynamic_shape.append(None)
+				dynamic_bmesh.append(None)
 
-		if not any(dynamic_shape):
-			dynamic_shape = None
+		if not any(dynamic_bmesh):
+			dynamic_bmesh = None
 	else:
-		dynamic_shape = None
+		dynamic_bmesh = None
 
 	log_level and log( '//// Finished @ %08x' % f.tell() )
 
-	return GeometryData(DATA_GROUPS, INDEX_GROUPS, inverse_transforms, MORPH_NAMES, static_shape, dynamic_shape)
+	return GeometryData(DATA_GROUPS, INDEX_GROUPS, inverse_transforms, MORPH_NAMES, static_bmesh, dynamic_bmesh)
 
 
 #-------------------------------------------------------------------------------
@@ -728,13 +741,13 @@ def _write_geometry_data(f, geometry):
 		f.write(b'\x00\x00\x00\x00') # no morphs
 
 	#
-	# shape
+	# bounding geometry
 	#
 
-	# static shape
+	# static
 
-	if geometry.static_shape and geometry.static_shape[0]:
-		V, I = geometry.static_shape
+	if geometry.static_bmesh and geometry.static_bmesh[0]:
+		V, I = geometry.static_bmesh
 		f.write(pack('<l', len(V)))
 		f.write(pack('<l', len(I)*3))
 
@@ -746,11 +759,11 @@ def _write_geometry_data(f, geometry):
 	else:
 		f.write(b'\x00\x00\x00\x00')
 
-	# dynamic shape
+	# dynamic
 
-	if geometry.dynamic_shape:
-		f.write(pack('<l', len(geometry.dynamic_shape)))
-		for part in geometry.dynamic_shape:
+	if geometry.dynamic_bmesh:
+		f.write(pack('<l', len(geometry.dynamic_bmesh)))
+		for part in geometry.dynamic_bmesh:
 			if part:
 				V, I = part
 				f.write(pack('<l', len(V)))
