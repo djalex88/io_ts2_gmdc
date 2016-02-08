@@ -29,7 +29,7 @@ Tooltip: 'Import TS2 GMDC file' """
 #-------------------------------------------------------------------------------
 
 from gmdc_tools import *
-from itertools import chain
+from itertools import chain, count
 
 import bpy, Blender
 from Blender import Draw
@@ -90,7 +90,7 @@ def create_objects(geometry, transform_tree, settings):
 
 				if parent_bone: _bone.parent = parent_bone
 
-				name = get_unique_name(node.name, armature.bones.keys())
+				name = make_unique_bone_name(node.name, node.bone_index, armature.bones.keys())
 
 				# add bone and its children
 				armature.bones[name] = _bone
@@ -98,10 +98,13 @@ def create_objects(geometry, transform_tree, settings):
 		##
 		## armature, node_ids and bone_set are defined at the bottom
 
-	def get_unique_name(name, _collection):
-		s = name ; i = 2
-		while s in _collection:
-			s = '%s.%i' % (name, i)
+	def make_unique_bone_name(name, idx, collection):
+		idx = '#%i'%idx if idx!=None else ''
+		s = name[:30-len(idx)] + idx # max - 31 characters (?)
+		i = 1
+		while s in collection:
+			s = '.%i'%i + idx
+			s = name[:30-len(s)] + s
 			i+= 1
 		return s
 
@@ -111,7 +114,7 @@ def create_objects(geometry, transform_tree, settings):
 	scene = bpy.data.scenes.active
 
 	#
-	# add meshes
+	# add mesh objects (main geometry)
 	#
 
 	mesh_objects = []
@@ -145,27 +148,31 @@ def create_objects(geometry, transform_tree, settings):
 		# as well as "triangles" with less than 3 different indices:
 		#   https://www.blender.org/api/249PythonDoc/Mesh.MFaceSeq-class.html#extend
 		#
+		w = []
 		for i, t in enumerate(I):
 			if 0 == t[2]:
 				I[i] = (t[2], t[0], t[1])
 				log( '--Triangle # %i reordered:' % i, t, '->', I[i] )
 				if T:
-					t = T[i]
-					T[i] = (t[2], t[0], t[1])
+					uv1, uv2, uv3 = T[i]
+					T[i] = (uv3, uv1, uv2)
 			if len(set(t)) < 3:
-				del I[i]
+				w.append(i)
 				log( '--Triangle # %i' % i, t, 'removed' )
-				if T: del T[i]
+		for i in reversed(w):
+			del I[i]
+			if T: del T[i]
+		w = None
 
 		log( '--Creating mesh object (vertices: %i, triangles: %i)...' % (len(V), len(I)) )
 
 		# create mesh and add it to the scene
 		mesh = create_mesh(group.name, V, I, T)
 		obj = scene.objects.new(mesh)
-		obj.name = group.name
+		obj.name = group.name # max - 21 characters
 
 		# save original name and flags
-		obj.addProperty('name', group.name.encode('latin_1'))
+		obj.addProperty('name', group.name.encode('latin_1')) # Blender does not like Unicode here
 		obj.addProperty('flags', '%08X' % group.flags)
 
 		mesh_objects.append(obj) # save reference to current object
@@ -174,7 +181,7 @@ def create_objects(geometry, transform_tree, settings):
 
 		# rigging
 		#
-		if transform_tree and data_group.bones:
+		if data_group.bones:
 
 			B = __fv(data_group.bones)
 			W = __fv(data_group.weights)
@@ -184,16 +191,16 @@ def create_objects(geometry, transform_tree, settings):
 			# map bones
 			B = [tuple(group.bones[j] for j in b) for b in B]
 
-			dd = dict() # { index -> unique_name }
-			for j in group.bones:
-				name = transform_tree.get_node(j).name
-				dd[j] = name = get_unique_name(name, dd)
+			dd = dict() # { index -> unique_bone_name }
+			for idx in group.bones:
+				name = transform_tree and transform_tree.get_node(idx).name or 'bone'
+				dd[idx] = name = make_unique_bone_name(name, idx, dd.values())
 				# add vertex group
 				mesh.addVertGroup(name)
 			v_group_names = [dd.get(j) for j in xrange(max(dd)+1)]
 
 			# assign vertices
-			for i, b, w in zip(xrange(len(B)), B, W):
+			for i, b, w in zip(count(), B, W):
 				for wi, j in enumerate(b):
 					if wi == 3:
 						f = 1.0 - sum(w)
@@ -222,7 +229,7 @@ def create_objects(geometry, transform_tree, settings):
 				_keys_f = filter(lambda t: idx in t[1], enumerate(keys))
 				if _keys_f:
 
-					s = "::".join(s)
+					s = '::'.join(s)
 
 					log( '\x20\x20--Key "%s"' % s )
 
@@ -244,35 +251,35 @@ def create_objects(geometry, transform_tree, settings):
 	#<- groups
 
 	#
-	# add shape mesh(es)
+	# add bounding geometry
 	#
 
-	if settings['import_shape']:
+	if settings['import_bmesh']:
 
-		if geometry.static_shape:
+		if geometry.static_bmesh:
 
-			log( 'Creating static shape mesh...' )
+			log( 'Creating static bounding mesh...' )
 
-			V, I = geometry.static_shape
+			V, I = geometry.static_bmesh
 
-			mesh = Blender.Mesh.New('Shape')
+			mesh = Blender.Mesh.New('b_mesh')
 			mesh.verts.extend(V)
 			mesh.faces.extend(I)
 
 			obj = scene.objects.new(mesh)
-			obj.name = 'Shape'
+			obj.name = 'b_mesh'
 
-		if geometry.dynamic_shape:
+		if geometry.dynamic_bmesh:
 
-			log( 'Creating dynamic shape mesh...' )
+			log( 'Creating dynamic bounding mesh...' )
 
-			mesh = Blender.Mesh.New('Shape')
+			mesh = Blender.Mesh.New('b_mesh')
 			obj = scene.objects.new(mesh)
-			obj.name = 'Shape'
+			obj.name = 'b_mesh'
 
 			v_group_names = set()
 
-			for idx, part in enumerate(geometry.dynamic_shape):
+			for idx, part in enumerate(geometry.dynamic_bmesh):
 				if part:
 					V, I = part
 					S = {} # { old_index -> new_index }
@@ -288,16 +295,35 @@ def create_objects(geometry, transform_tree, settings):
 					mesh.verts.extend(V)
 					mesh.faces.extend(I)
 
-					if transform_tree:
-						name = transform_tree.get_node(idx).name
-						name = get_unique_name(name, v_group_names)
-						v_group_names.add(name)
-						mesh.addVertGroup(name)
-						mesh.assignVertsToGroup(name, S.values(), 1.0, 1)
+					name = transform_tree and transform_tree.get_node(idx).name or 'bone'
+					name = make_unique_bone_name(name, idx, v_group_names)
+					v_group_names.add(name)
+					mesh.addVertGroup(name)
+					mesh.assignVertsToGroup(name, S.values(), 1.0, 1)
+
+			mesh.calcNormals()
 
 			v_group_names = None
 
 			mesh_objects.append(obj)
+
+	#
+	# load inverse transforms (if any)
+	#
+
+	if geometry.inverse_transforms:
+
+		v = tuple(chain(*chain(*geometry.inverse_transforms)))
+
+		try:
+			w = tuple(scene.properties['gmdc_inverse_transforms'])
+			log( 'Scene already has inverse transforms (%i) stored in scene.properties["gmdc_inverse_transforms"]' % (len(w)/7) )
+			if v != w and display_menu('The file has a different set of inverse transforms. Replace?',
+			  ['Yes, replace inverse transforms.', 'No, keep previously loaded inverse transforms.'], choice_required=True) == 0:
+				raise Exception()
+		except:
+			log( 'Saving inverse transforms in scene.properties["gmdc_inverse_transforms"]' )
+			scene.properties['gmdc_inverse_transforms'] = v
 
 	#
 	# add armature (if any)
@@ -358,7 +384,7 @@ def create_objects(geometry, transform_tree, settings):
 def begin_import():
 
 	settings = {
-		'import_shape':   btn_import_shape.val,
+		'import_bmesh':   btn_import_bmesh.val,
 		'remove_doubles': btn_remove_doubles.val,
 		'all_bones':      btn_all_bones.val,
 		}
@@ -393,7 +419,7 @@ def begin_import():
 	log( 'GMDC file:', gmdc_filename )
 	log( 'CRES file:', cres_filename )
 	log( 'Settings:' )
-	log( '--Import shape:     ', settings['import_shape'] )
+	log( '--Import bounding geometry:', settings['import_bmesh'] )
 	log( '--Remove doubles:   ', settings['remove_doubles'] )
 	log( '--Import all bones: ', settings['all_bones'] )
 	log()
@@ -467,13 +493,17 @@ def begin_import():
 ##  GUI
 ########################################
 
-def display_menu(caption, items):
-	return Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+def display_menu(caption, items, choice_required=False):
+	b = True
+	while b:
+		choice = Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+		b = choice_required and choice < 0
+	return choice
 
 
 def draw_gui():
 
-	global str_gmdc_filename, str_cres_filename, btn_import_shape, btn_all_bones, btn_remove_doubles, btn_save_log
+	global str_gmdc_filename, str_cres_filename, btn_import_bmesh, btn_all_bones, btn_remove_doubles, btn_save_log
 
 	pos_y = 230 ; MAX_PATH = 200
 
@@ -506,10 +536,10 @@ def draw_gui():
 
 	# resource node file selector
 
-	Draw.Label("Resource node file", 20, pos_y, 200, 20)
+	Draw.Label("Resource node file (optional)", 20, pos_y, 200, 20)
 	pos_y-= 20
 	Draw.BeginAlign()
-	str_cres_filename = Draw.String("", 0x20, 20, pos_y, 300, 20, str_cres_filename.val, MAX_PATH, "Path to resource node file")
+	str_cres_filename = Draw.String("", 0x20, 20, pos_y, 300, 20, str_cres_filename.val, MAX_PATH, "Path to resource node file (CRES; optional, but recommended)")
 	Draw.PushButton("Select file", 0x21, 320, pos_y, 100, 20, "Open file browser")
 	Draw.EndAlign()
 
@@ -518,7 +548,7 @@ def draw_gui():
 	# options
 
 	Draw.BeginAlign()
-	btn_import_shape = Draw.Toggle("Shape", 0x31, 20, pos_y, 100, 20, btn_import_shape.val, "Import shape mesh (it makes object selectable in game)")
+	btn_import_bmesh = Draw.Toggle("Bound. mesh", 0x31, 20, pos_y, 100, 20, btn_import_bmesh.val, "Import bounding geometry")
 	btn_remove_doubles = Draw.Toggle("Rm. doubles", 0x32, 120, pos_y, 100, 20, btn_remove_doubles.val, "If some vertices differ only in texture coordinates, then they are merged together (removes seams)")
 	btn_all_bones = Draw.Toggle("All bones", 0x33, 220, pos_y, 100, 20, btn_all_bones.val, "Import all bones/transforms; otherwise, used bones only")
 	btn_save_log = Draw.Toggle("Save log", 0x34, 320, pos_y, 100, 20, btn_save_log.val, "Write script's log data into file *.import_log.txt")
@@ -574,9 +604,9 @@ def button_events(evt):
 
 str_gmdc_filename = Draw.Create("")
 str_cres_filename = Draw.Create("")
-btn_import_shape  = Draw.Create(0)
+btn_import_bmesh = Draw.Create(0)
 btn_remove_doubles = Draw.Create(1)
 btn_all_bones = Draw.Create(0)
-btn_save_log  = Draw.Create(0)
+btn_save_log = Draw.Create(0)
 
 Draw.Register(draw_gui, event_handler, button_events)
