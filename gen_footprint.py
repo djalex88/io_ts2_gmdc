@@ -41,10 +41,16 @@ from Blender.Mathutils import Vector, Intersect
 
 #---------------------------------------
 
+scene = bpy.data.scenes.active
+
 def generate_footprint():
 
 	# get mesh objects
-	objects = filter(lambda obj: obj.type=='Mesh' and obj.name.lower().startswith('footprint'), bpy.data.scenes.active.objects)
+	objects = filter(lambda obj: obj.type=='Mesh' and obj.name.lower().startswith('footprint'), scene.objects)
+
+	if not objects:
+		error( 'Error! Object list is empty. (No mesh objects whose names begin with "footprint".)' )
+		return False
 
 	# check whether visual transforms applied
 	v = [obj for obj in objects if tuple(obj.rot)!=(0, 0, 0) or tuple(obj.size)!=(1, 1, 1)]
@@ -53,10 +59,6 @@ def generate_footprint():
 		for obj in v:
 			error( '\x20\x20%s -> rot: %s, size: %s' % (str(obj), str(obj.rot), str(obj.size)) )
 		error( 'Solution: apply visual transforms.' )
-		return False
-
-	if not objects:
-		error( 'Error! Object list is empty. (No mesh objects whose names begin with "footprint.".)' )
 		return False
 
 	footprint = []
@@ -121,15 +123,19 @@ def generate_footprint():
 
 #---------------------------------------
 
-def display_menu(caption, items):
-	return Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+def display_menu(caption, items, choice_required=False):
+	b = True
+	while b:
+		choice = Draw.PupMenu('%s%%t|'%caption + "|".join('%s%%x%i'%(s, i) for i, s in enumerate(items)), 0x100)
+		b = choice_required and choice < 0
+	return choice
 
 
 def update_cres(cres_filename):
 
 	Blender.Window.EditMode(0)
 
-	_save_log = display_menu('Save log?', ['Yes', 'No']) == 0
+	_save_log = display_menu('Save log?', ['Yes', 'No'], True) == 0
 
 	# create log file (if needed)
 	if _save_log:
@@ -172,10 +178,14 @@ def update_cres(cres_filename):
 	v = [node for node in res.nodes if node.type=='cDataListExtension' and node.Ext_data[1]=='footprint']
 	if v:
 		node = v[0]
+		log( 'Footprint extension node found (%i).' % node.index )
 	else:
+		log( 'Adding footprint extension node...' )
 		node = DataListExtension(len(res.nodes))
 		res.nodes.append(node)
 		res.nodes[0].extensions.append((1, 0, node.index))
+
+	log()
 
 	# export
 	#
@@ -188,7 +198,7 @@ def update_cres(cres_filename):
 
 		log()
 		log( 'Saving file...' )
-		res.create_file(cres_filename)
+		res.save()
 
 	except:
 		footprint==None and print_last_exception()
@@ -205,5 +215,13 @@ def update_cres(cres_filename):
 		close_log_file()
 
 
-# Run
-Blender.Window.FileSelector(update_cres, 'Update CRES')
+#---------------------------------------
+# run
+
+if not filter(lambda obj: obj.type=='Mesh' and obj.name.lower().startswith('footprint'), scene.objects):
+
+	display_menu('Error!', ['No mesh objects whose names begin with "footprint".'])
+
+else:
+	Blender.Window.FileSelector(update_cres, 'Update CRES')
+
