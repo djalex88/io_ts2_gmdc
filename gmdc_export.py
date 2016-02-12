@@ -54,7 +54,7 @@ def prepare_geometry(settings):
 		error( 'Error! The following mesh ' + ('objects have' if len(v)>1 else 'object has') + ' non-applied visual transforms:' )
 		for obj in v:
 			error( '\x20\x20%s -> rot: %s, size: %s' % (str(obj), str(obj.rot), str(obj.size)) )
-		error( 'Solution: apply visual transforms.' )
+		error( 'Solution: apply visual transforms (Ctrl+A).' )
 		return False
 
 	if settings['export_bmesh']:
@@ -372,11 +372,11 @@ def prepare_geometry(settings):
 		if group:
 			k = group.count
 			indices = map(lambda x: x+k, indices) # shift indices
-			log( '--Extending group #', ref_group )
+			log( '--Extending group # %i...' % ref_group )
 		else:
 			ref_group = len(DATA_GROUPS)
 			group = DataGroup() ; DATA_GROUPS.append(group)
-			log( '--Creating new group #', ref_group )
+			log( '--Adding new group # %i...' % ref_group )
 
 		# add vertices to group
 		#
@@ -419,7 +419,7 @@ def prepare_geometry(settings):
 			else:
 				name = x.data
 
-		log( '--Creating new index group # %i, "%s" (triangles: %i)' % (len(INDEX_GROUPS), name, len(indices)/3) )
+		log( '--Creating new index group # %i, "%s" (triangles: %i)...' % (len(INDEX_GROUPS), name, len(indices)/3) )
 
 		group = IndexGroup(name) ; INDEX_GROUPS.append(group)
 		group.data_group_index = ref_group
