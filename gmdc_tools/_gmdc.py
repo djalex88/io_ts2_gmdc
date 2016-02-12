@@ -75,17 +75,18 @@ class GeometryDataContainer(_SGNode):
 		self.version = 0x04
 
 	def read(self, f, log_level=1):
-		s = f.read(31)
-		if s != b'\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00':
+		s = f.read(27)
+		if s != b'\x16cGeometryDataContainer\x87\x86\x4F\xAC':
 			error( 'Error! cGeometryDataContainer header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
-		if not self._read_cSGResource(f): return False
+		if not self._read_check_version(f, 0x04) or not self._read_cSGResource(f): return False
 		self.geometry = _load_geometry_data(f, log_level)
 		return bool(self.geometry)
 
 	def write(self, f):
-		f.write(b'\x16cGeometryDataContainer\x87\x86\x4F\xAC\x04\x00\x00\x00')
+		f.write(b'\x16cGeometryDataContainer\x87\x86\x4F\xAC')
+		self._write_version(f)
 		self._write_cSGResource(f)
 		_write_geometry_data(f, self.geometry)
 
@@ -481,7 +482,7 @@ def _rm_doubles(geometry):
 
 		if g1.tex_coords:
 
-			log( 'Processing data group %i...' % idx1 )
+			log( 'Processing data group # %i...' % idx1 )
 
 			N = g1.normals or repeat(0)
 			B = g1.bones   or repeat(0)
@@ -518,7 +519,7 @@ def _rm_doubles(geometry):
 
 				if g2.data_group_index == idx1:
 
-					log( '\x20\x20--Processing index group %i...' % idx2 )
+					log( '\x20\x20--Processing index group # %i...' % idx2 )
 
 					I = g2.indices
 
@@ -581,11 +582,17 @@ def _write_geometry_data(f, geometry):
 	group_section_indices = [] # [group_index] -> (section_indices)
 
 	for group in geometry.data_groups:
-		i = len(SECTIONS)
-		indices = [i, i+1, i+2]
+		indices = [len(SECTIONS)]
 		SECTIONS.append(('V', 0, group.vertices))
-		SECTIONS.append(('N', 0, group.normals))
-		SECTIONS.append(('T', 0, group.tex_coords))
+		if group.normals:
+			indices.append(len(SECTIONS))
+			SECTIONS.append(('N', 0, group.normals))
+		if group.tex_coords:
+			indices.append(len(SECTIONS))
+			SECTIONS.append(('T', 0, group.tex_coords))
+			if group.tex_coords2:
+				indices.append(len(SECTIONS))
+				SECTIONS.append(('T', 1, group.tex_coords2))
 
 		if group.bones:
 			i = len(SECTIONS)
