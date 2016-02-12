@@ -33,7 +33,8 @@ class _SGNode(object):
 	# - type
 	# - version
 	# cResourceNode:
-	# - Res_unknown (5 bytes)
+	# - Res_unknown1 (1 byte)
+	# - Res_unknown2 (5 bytes)
 	# cSGResource:
 	# - sg_resource_name
 	# cCompositionTreeNode:
@@ -42,8 +43,7 @@ class _SGNode(object):
 	# - extensions
 	# - obj_string
 	# cRenderableNode:
-	# - R_number1 (ushort)
-	# - R_number2 (long)
+	# - R_number (BBl)
 	# - R_strings
 	# - R_unknown (5 bytes)
 	# cTransformNode:
@@ -57,7 +57,8 @@ class _SGNode(object):
 	# - SR_unknown1 (4 bytes)
 	# - SR_data2
 	# - SR_strings (version 0x15)
-	# - SR_unknown2 (8 bytes)
+	# - SR_unknown2
+	# - SR_unknown3 (4 bytes)
 	# cLightRefNode:
 	# - L_index (BBl)
 	# - L_unknown (2 bytes)
@@ -86,6 +87,19 @@ class _SGNode(object):
 
 	def __repr__(self):
 		return self.__str__()
+
+	def _read_check_version(self, f, supported):
+		self.version = unpack('<l', f.read(4))[0]
+		try:
+			assert self.version == supported or self.version in supported
+			b = True
+		except:
+			error( 'Error! %s version %i is not supported.' % (self.type, self.version) )
+			b = False
+		return b
+
+	def _write_version(self, f):
+		f.write(pack('<l', self.version))
 
 	#
 	# _read_-methods
@@ -133,9 +147,8 @@ class _SGNode(object):
 			error( '%#x' % f.tell() )
 			return False
 		if not self._read_cBoundedNode(f): return False
-		i, j = unpack('<Hl', f.read(6))
-		self.R_number1 = i
-		self.R_number2 = j
+		self.R_number = unpack('<BBl', f.read(6))
+		j = self.R_number[2]
 		v = []
 		while j:
 			v.append(read_str(f)) # such as 'Practical', 'Sims', etc.
@@ -198,8 +211,8 @@ class _SGNode(object):
 	def _write_cRenderableNode(self, f):
 		f.write(b'\x0fcRenderableNode\x00\x00\x00\x00\x05\x00\x00\x00')
 		self._write_cBoundedNode(f)
-		f.write(pack('<Hl', self.R_number1, self.R_number2))
-		assert self.R_number2 == len(self.R_strings)
+		f.write(pack('<BBl', *self.R_number))
+		assert self.R_number[2] == len(self.R_strings)
 		for s in self.R_strings:
 			write_str(f, s)
 		f.write(self.R_unknown)
@@ -237,7 +250,7 @@ class _SGNode(object):
 
 	def _str_cRenderableNode(self):
 		s = '_R{\n' + self._str_cBoundedNode() + '\n'
-		s+= '--Numbers: (%i, %i)\n' % (self.R_number1, self.R_number2)
+		s+= '--Number: ' + str(self.R_number) + '\n'
 		s+= '--Strings: ' + str(self.R_strings) + '\n'
 		s+= '--Unknown: ' + to_hex(self.R_unknown) + '\n}R_'
 		return s
