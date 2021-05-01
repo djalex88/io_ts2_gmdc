@@ -133,19 +133,20 @@ def create_objects(geometry, transform_tree, settings):
 		I = [(S[i], S[j], S[k]) for i, j, k in group.indices]
 
 		# filtering function
-		__fv = lambda X: [x for i, x in enumerate(X) if i in S]
+		def select_data(data):
+			return [x for i, x in enumerate(data) if i in S]
 
-		V = __fv(data_group.vertices)
+		V = select_data(data_group.vertices)
 
 		# texture coords
 		if data_group.tex_coords:
-			T = __fv(data_group.tex_coords)
+			T = select_data(data_group.tex_coords)
 			T = [(T[i], T[j], T[k]) for i, j, k in I]
 		else:
-			T = group.tex_coords and group.tex_coords[:] # copy
+			T = group.tex_coords and group.tex_coords[:] # copy or None
 
 		# also, Blender does not like triangles with zero-index vertex on 3rd position
-		# as well as "triangles" with less than 3 different indices:
+		# as well as degenerate triangles (i.e., less than 3 different indices):
 		#   https://www.blender.org/api/249PythonDoc/Mesh.MFaceSeq-class.html#extend
 		#
 		w = []
@@ -161,7 +162,8 @@ def create_objects(geometry, transform_tree, settings):
 				log( '--Triangle # %i' % i, t, 'removed' )
 		for i in reversed(w):
 			del I[i]
-			if T: del T[i]
+			if T:
+				del T[i]
 		w = None
 
 		log( '--Creating mesh object (vertices: %i, triangles: %i)...' % (len(V), len(I)) )
@@ -172,7 +174,8 @@ def create_objects(geometry, transform_tree, settings):
 		obj.name = group.name # max - 21 characters
 
 		# save original name and flags
-		obj.addProperty('name', group.name.encode('latin_1')) # Blender does not like Unicode here
+		assert type(group.name) == str
+		obj.addProperty('name', group.name) # Blender does not like Unicode here
 		obj.addProperty('flags', '%08X' % group.flags)
 
 		mesh_objects.append(obj) # save reference to current object
@@ -183,8 +186,8 @@ def create_objects(geometry, transform_tree, settings):
 		#
 		if data_group.bones:
 
-			B = __fv(data_group.bones)
-			W = __fv(data_group.weights)
+			B = select_data(data_group.bones)
+			W = select_data(data_group.weights)
 
 			log( '--Assigning vertices to vertex groups...' )
 
@@ -216,8 +219,8 @@ def create_objects(geometry, transform_tree, settings):
 
 			log( '--Adding shape keys...' )
 
-			keys = __fv(data_group.keys)
-			dV = map(__fv, data_group.dVerts)
+			keys = select_data(data_group.keys)
+			dV = map(select_data, data_group.dVerts)
 
 			log( '\x20\x20--Length of dV: (%i, %i, %i, %i)' % tuple(map(len, dV)) )
 
