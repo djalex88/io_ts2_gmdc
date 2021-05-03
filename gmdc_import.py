@@ -29,7 +29,7 @@ Tooltip: 'Import TS2 GMDC file' """
 #-------------------------------------------------------------------------------
 
 from gmdc_tools import *
-from itertools import chain, count
+from itertools import chain
 
 import bpy, Blender
 from Blender import Draw
@@ -203,7 +203,7 @@ def create_objects(geometry, transform_tree, settings):
 			v_group_names = [dd.get(j) for j in xrange(max(dd)+1)]
 
 			# assign vertices
-			for i, b, w in zip(count(), B, W):
+			for i, (b, w) in enumerate(zip(B, W)):
 				for wi, j in enumerate(b):
 					if wi == 3:
 						f = 1.0 - sum(w)

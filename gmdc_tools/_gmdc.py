@@ -80,7 +80,8 @@ class GeometryDataContainer(_SGNode):
 			error( 'Error! cGeometryDataContainer header:', to_hex(s) )
 			error( '%#x' % f.tell() )
 			return False
-		if not self._read_check_version(f, 0x04) or not self._read_cSGResource(f): return False
+		if not self._read_check_version(f, 0x04) or not self._read_cSGResource(f):
+			return False
 		self.geometry = _load_geometry_data(f, log_level)
 		return bool(self.geometry)
 
@@ -96,19 +97,30 @@ class GeometryDataContainer(_SGNode):
 		s+= '\n' + self._str_cSGResource() + '\n'
 		s+= '--Data groups (%i):\n' % len(g.data_groups)
 		for i, group in enumerate(g.data_groups):
-			v = [group.vertices, group.normals, group.tex_coords, group.bones, group.weights, group.tangents, group.mask, group.keys]
+			# vertex format
+			data_list = [group.vertices, group.normals, group.tex_coords, group.bones, group.weights, group.tangents, group.mask, group.keys]
 			s+= '\x20\x20%i - Elements:%5i, ' % (i, group.count)
-			s+= 'vertex: <' + "".join(map(lambda x, y: x if y else '', 'VNTBWXMK', v))
-			x, y = sum(map(bool, group.dVerts)), sum(map(bool, group.dNorms))
-			if x: s+= ' dV(%i)' % x
-			if y: s+= ' dN(%i)' % y
+			s+= 'vertex: <'
+			for data, ch in zip(data_list, 'VNTBWXMK'):
+				if data:
+					s+= ch
+			num_dV = sum(map(bool, group.dVerts))
+			if num_dV:
+				s+= ' dV(%i)' % num_dV
+			num_dN = sum(map(bool, group.dNorms))
+			if num_dN:
+				s+= ' dN(%i)' % num_dN
 			s+= '>\n'
 		s+= '--Index groups (%i):\n' % len(g.index_groups)
 		for i, group in enumerate(g.index_groups):
 			s+= '\x20\x20%i - Name: "%s", triangles: %i, data group: %i\n' % (i, group.name, len(group.indices), group.data_group_index)
 		s+= '--Inverse transforms: ' + (str(len(g.inverse_transforms)) if g.inverse_transforms else 'None') + '\n'
 		s+= '--Morphs: ' + (str(len(g.morph_names)) if g.morph_names else 'None') + '\n'
-		s+= '--Bounding geometry: ' + (str(filter(bool, ['static' if g.static_bmesh else '', 'dynamic (%i)'%len(g.dynamic_bmesh) if g.dynamic_bmesh else ''])) or 'None')
+		bmesh_types = [
+			'static' if g.static_bmesh else '',
+			'dynamic (%i)'%len(g.dynamic_bmesh) if g.dynamic_bmesh else '',
+		]
+		s+= '--Bounding geometry: ' + (str(filter(bool, bmesh_types)) or 'None')
 		return s
 
 	def __repr__(self):
@@ -222,7 +234,7 @@ def _load_geometry_data(f, log_level):
 
 		# indices
 		#
-		if s1 in ('0x7C4DEE82', '0x5C4AFC5C', '0x1C4AFC56') and 'V' in dir() and V != None:
+		if s1 in ('0x7C4DEE82', '0x5C4AFC5C', '0x1C4AFC56') and 'V' in locals() and V != None:
 
 			i = unpack('<l', f.read(4))[0]
 			s = f.read(i*2)
@@ -536,18 +548,22 @@ def _rm_doubles(geometry):
 			g1.tex_coords = []
 			g1.tangents   = []
 
-			g1.vertices, N, B, W, K, dV, dN = map(list, zip(*unique_verts)) ; del unique_verts, indices
+			g1.vertices, N, B, W, K, dV, dN = map(list, zip(*unique_verts))
+			del unique_verts, indices
 
+			# update data
 			if g1.normals : g1.normals = N
 			if g1.bones   : g1.bones   = B
 			if g1.weights : g1.weights = W
 			if g1.keys    : g1.keys    = K
 
-			i = len(filter(bool, g1.dVerts))
-			j = len(filter(bool, g1.dNorms))
-
-			if i: dV = map(list, zip(*dV)) + [[], [], []] ; g1.dVerts = dV[:4]
-			if j: dN = map(list, zip(*dN)) + [[], [], []] ; g1.dNorms = dN[:4]
+			# pad with empty lists
+			if any(g1.dVerts):
+				dV = map(list, zip(*dV)) + [[], [], []]
+				g1.dVerts = dV[:4]
+			if any(g1.dNorms):
+				dN = map(list, zip(*dN)) + [[], [], []]
+				g1.dNorms = dN[:4]
 
 			del N, B, W, K, dV, dN
 
@@ -732,8 +748,9 @@ def _write_geometry_data(f, geometry):
 
 	if geometry.inverse_transforms:
 		f.write(pack('<l', len(geometry.inverse_transforms)))
-		for t in geometry.inverse_transforms:
-			f.write(pack('<7f', *(t[0]+t[1])))
+		for rot, loc in geometry.inverse_transforms:
+			f.write(pack('<4f', *rot)
+			f.write(pack('<3f', *loc)
 	else:
 		f.write(b'\x00\x00\x00\x00') # no transforms (static mesh)
 

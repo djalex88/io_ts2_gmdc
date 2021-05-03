@@ -31,7 +31,7 @@ Tooltip: 'Export to TS2 GMDC file' """
 import os
 from struct import pack
 from gmdc_tools import *
-from itertools import count, repeat
+from itertools import repeat
 
 import bpy, Blender
 from Blender import Draw
@@ -317,10 +317,10 @@ def prepare_geometry(settings):
 
 				if morphing == 2:
 					dNorms = [(tuple(dn) + ((0.0, 0.0, 0.0),)*4)[:j] for dn in dNorms]
-					for i, k, dv, dn in zip(count(), keys, dVerts, dNorms):
+					for i, (k, dv, dn) in enumerate(zip(keys, dVerts, dNorms)):
 						all_vertices[i]+= (k, dv, dn)
 				else:
-					for i, k, dv     in zip(count(), keys, dVerts):
+					for i, (k, dv) in enumerate(zip(keys, dVerts)):
 						all_vertices[i]+= (k, dv)
 
 			dVerts = dNorms = None ; keys = None
