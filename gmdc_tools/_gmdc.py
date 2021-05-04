@@ -749,8 +749,8 @@ def _write_geometry_data(f, geometry):
 	if geometry.inverse_transforms:
 		f.write(pack('<l', len(geometry.inverse_transforms)))
 		for rot, loc in geometry.inverse_transforms:
-			f.write(pack('<4f', *rot)
-			f.write(pack('<3f', *loc)
+			f.write(pack('<4f', *rot))
+			f.write(pack('<3f', *loc))
 	else:
 		f.write(b'\x00\x00\x00\x00') # no transforms (static mesh)
 
