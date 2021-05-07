@@ -138,24 +138,40 @@ def prepare_geometry(settings):
 		# rigging
 		rigging = settings['export_rigging']
 
-		for face, tangents in zip(mesh_faces, mesh_tangents):
+		# texture coords
+		#
+		uv_layers = mesh.getUVLayerNames()
+		# main
+		mesh.activeUVLayer = uv_layers[0]
+		mesh_tex_coords = [tuple((t.x, 1-t.y) for t in face.uv) for face in mesh_faces] # OpenGL -> Direct3D
+		# secondary
+		if len(uv_layers) > 1:
+			mesh.activeUVLayer = uv_layers[1]
+			tex_coords2 = [tuple((t.x, 1-t.y) for t in face.uv) for face in mesh_faces]
+			# pack into single list
+			mesh_tex_coords = [tuple(zip(face_uv1, face_uv2)) for face_uv1, face_uv2 in zip(mesh_tex_coords, tex_coords2)]
+			# make main layer activate again
+			mesh.activeUVLayer = uv_layers[0]
+			del tex_coords2
+
+		for face, uv, tangents in zip(mesh_faces, mesh_tex_coords, mesh_tangents):
 			verts = [tuple( (v.co + obj_loc).xyz ) for v in face.verts]
 			norms = [tuple(v.no.xyz) for v in face.verts] if face.smooth else [tuple(face.no.xyz)] * len(verts)
-			uv = [(t.x, 1.0-t.y) for t in face.uv] # OpenGL -> Direct3D
 			if rigging:
 				bones = []
 				weights = []
 				for v in face.verts:
 					v_groups = mesh.getVertexInfluences(v.index)
-					b = tuple()
-					w = tuple()
+					b = []
+					w = []
 					for name, f in v_groups:
 						# get bone index
 						s = name.split('#')
 						try:
 							assert f > 0.0
 							idx = int(s[-1])
-							if len(s) < 2 or idx < 0: raise Exception()
+							if len(s) < 2 or idx < 0:
+								raise Exception()
 						except AssertionError:
 							pass
 						except:
@@ -165,19 +181,19 @@ def prepare_geometry(settings):
 							if k == None:
 								k = len(bone_indices)
 								bone_indices[idx] = k
-							b+= (k,)
-							w+= (f,)
+							b.append(k)
+							w.append(f)
 					if len(b) > 4:
 						error( 'Error! Vertex # %i of mesh object "%s" is in more that 4 vertex groups.' % (v.index, obj.name) )
 						return False
 					# normalize weights
 					f = sum(w)
 					if f > 0.0001:
-						w = tuple(x/f for x in w)
+						bones.append(tuple(b))
+						weights.append(tuple(x/f for x in w))
 					else:
-						w = tuple(0.0 for x in w) # ?
-					bones  .append(b)
-					weights.append(w)
+						bones.append(tuple())
+						weights.append(tuple())
 			else:
 				bones   = [(), (), (), ()]
 				weights = [(), (), (), ()]
@@ -192,8 +208,8 @@ def prepare_geometry(settings):
 				weights  = [ weights[i] for i in order]
 				tangents = [tangents[i] for i in order]
 
-			# add vertices to list
-			all_vertices+= zip(verts, norms, uv, bones, weights, tangents)
+			# add to the list
+			all_vertices.extend(zip(verts, norms, uv, bones, weights, tangents))
 
 		#<- faces
 
@@ -218,7 +234,7 @@ def prepare_geometry(settings):
 
 			# compute differences
 
-			for k, key_block in enumerate(mesh.key.blocks[1:], 2):
+			for k, key_block in enumerate(mesh.key.blocks[1:], 2): # indexing of obj.activeShape starts from 1
 
 				name = tuple(key_block.name.strip().split('::'))
 				if len(name) != 2:
@@ -302,7 +318,7 @@ def prepare_geometry(settings):
 			assert len(dVerts) == len(all_vertices)
 
 			if not any(keys):
-				log( '--Differeces between shape keys of mesh object "%s" were not detected.' % obj.name )
+				log( '--Differences between shape keys of mesh object "%s" were not detected.' % obj.name )
 				morphing = False
 				if first_new_morph_index != None:
 					del MORPH_NAMES[first_new_morph_index : ] # remove newly added morph names
@@ -348,7 +364,14 @@ def prepare_geometry(settings):
 
 		V, N, T, B, W, X, K, dV, dN = map(list, zip(*unique_verts)) + ([None,None,None] if not morphing else [None]*(2-morphing))
 
-		del unique_verts
+		# separate uv layers (if needed)
+		if len(uv_layers) > 1:
+			T1, T2 = zip(*T)
+		else:
+			T1 = T
+			T2 = None
+
+		del unique_verts, T
 
 		#
 		# add new data group or extend an existing one
@@ -360,12 +383,13 @@ def prepare_geometry(settings):
 		# try to find a suitable data group
 		group = None
 		for i, g in enumerate(DATA_GROUPS):
-			b1 = bool(g.bones) == rigging
+			b1 = (bool(g.bones) == rigging) # same rigging state
 			if morphing:
 				b2 = sum(bool(x) for x in g.dVerts) == len(dV[0]) # same number of difference arrays
 			else:
 				b2 = not bool(g.dVerts[0]) # no difference arrays
-			if b1 and b2:
+			b3 = (bool(g.tex_coords2) == bool(T2)) # presence of additional UV layer
+			if b1 and b2 and b3:
 				# found
 				ref_group, group = i, g
 				break
@@ -382,7 +406,9 @@ def prepare_geometry(settings):
 		#
 		group.vertices.extend(V)
 		group.normals.extend(N)
-		group.tex_coords.extend(T)
+		group.tex_coords.extend(T1)
+		if T2:
+			group.tex_coords2.extend(T2)
 		if rigging:
 			group.bones.extend(B)
 			group.weights.extend(W)
@@ -391,12 +417,14 @@ def prepare_geometry(settings):
 		if morphing:
 			group.keys.extend(K)
 			dV = map(list, zip(*dV)) + [[], [], []]
-			for v, w in zip(group.dVerts, dV): v.extend(w)
+			for v, w in zip(group.dVerts, dV):
+				v.extend(w)
 			if morphing > 1:
 				dN = map(list, zip(*dN)) + [[], [], []]
-				for v, w in zip(group.dNorms, dV): v.extend(w)
+				for v, w in zip(group.dNorms, dV):
+					v.extend(w)
 
-		del V, N, T, B, W, X, K, dV, dN
+		del V, N, T1, T2, B, W, X, K, dV, dN
 
 		k = group.count
 		group.count = len(group.vertices)

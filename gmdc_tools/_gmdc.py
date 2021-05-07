@@ -51,6 +51,7 @@ class IndexGroup(object):
 		self.data_group_index = None
 		self.indices = None
 		self.tex_coords = None
+		self.tex_coords2 = None
 		self.bones = None
 		self.flags = 0xffffffff
 
@@ -98,10 +99,10 @@ class GeometryDataContainer(_SGNode):
 		s+= '--Data groups (%i):\n' % len(g.data_groups)
 		for i, group in enumerate(g.data_groups):
 			# vertex format
-			data_list = [group.vertices, group.normals, group.tex_coords, group.bones, group.weights, group.tangents, group.mask, group.keys]
+			data_list = [group.vertices, group.normals, group.tex_coords, group.tex_coords2, group.bones, group.weights, group.tangents, group.mask, group.keys]
 			s+= '\x20\x20%i - Elements:%5i, ' % (i, group.count)
 			s+= 'vertex: <'
-			for data, ch in zip(data_list, 'VNTBWXMK'):
+			for data, ch in zip(data_list, 'VNT2BWXMK'):
 				if data:
 					s+= ch
 			num_dV = sum(map(bool, group.dVerts))
@@ -341,12 +342,14 @@ def _load_geometry_data(f, log_level):
 		i = unpack('<l', f.read(4))[0]
 		index_mapping3 = unpack('<%iH'%i, f.read(i*2))
 
+		# apply indexing
 		if index_mapping1: v =   group.vertices ; group.vertices   = [v[i] for i in index_mapping1]
 		if index_mapping2: v =    group.normals ; group.normals    = [v[i] for i in index_mapping2]
 		if index_mapping3: v = group.tex_coords ; group.tex_coords = [v[i] for i in index_mapping3]
 
 		if index_mapping1 or index_mapping2 or index_mapping3:
 			assert not (group.bones or group.keys)
+			log( '--Index mapping: (%i, %i, %i)' % (len(index_mapping1), len(index_mapping2), len(index_mapping3)) )
 
 		v = None
 
@@ -538,6 +541,9 @@ def _rm_doubles(geometry):
 					# move texture coords to index group
 					T = g1.tex_coords
 					g2.tex_coords = [(T[i], T[j], T[k]) for i, j, k in I]
+					if g1.tex_coords2:
+						T = g1.tex_coords2
+						g2.tex_coords2 = [(T[i], T[j], T[k]) for i, j, k in I]
 
 					# update indices
 					g2.indices = [(indices[i], indices[j], indices[k]) for i, j, k in I]
@@ -546,7 +552,8 @@ def _rm_doubles(geometry):
 
 			g1.count = len(unique_verts)
 			g1.tex_coords = []
-			g1.tangents   = []
+			g1.tex_coords2 = []
+			g1.tangents = []
 
 			g1.vertices, N, B, W, K, dV, dN = map(list, zip(*unique_verts))
 			del unique_verts, indices

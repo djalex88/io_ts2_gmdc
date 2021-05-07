@@ -44,7 +44,7 @@ def create_objects(geometry, transform_tree, settings):
 	#---------------------------------------
 	# subroutines
 
-	def create_mesh(name, V, I, T):
+	def create_mesh(name, V, I, T1, T2):
 
 		# create mesh
 		#
@@ -57,17 +57,21 @@ def create_objects(geometry, transform_tree, settings):
 		# instead, calculate normals
 		mesh.calcNormals()
 
-		if T:
+		if T1:
+			mesh.addUVLayer('UVMap')
+
 			# assign texture coords
 			#
-			for f, t in zip(mesh.faces, T):
-				uv1, uv2, uv3 = t
-				# Direct3D -> OpenGL
-				u, v = uv1 ; uv1 = BlenderVector(u, 1-v)
-				u, v = uv2 ; uv2 = BlenderVector(u, 1-v)
-				u, v = uv3 ; uv3 = BlenderVector(u, 1-v)
-				# assign
-				f.uv = (uv1, uv2, uv3)
+			for f, t in zip(mesh.faces, T1):
+				f.uv = tuple(BlenderVector(u, 1-v) for u, v in t) # Direct3D -> OpenGL
+
+			if T2:
+				mesh.addUVLayer('UVMap2')
+				mesh.activeUVLayer = 'UVMap2'
+				for f, t in zip(mesh.faces, T2):
+					f.uv = tuple(BlenderVector(u, 1-v) for u, v in t)
+
+			mesh.activeUVLayer = 'UVMap'
 
 		return mesh
 
@@ -140,10 +144,16 @@ def create_objects(geometry, transform_tree, settings):
 
 		# texture coords
 		if data_group.tex_coords:
-			T = select_data(data_group.tex_coords)
-			T = [(T[i], T[j], T[k]) for i, j, k in I]
+			T1 = select_data(data_group.tex_coords)
+			T1 = [(T1[i], T1[j], T1[k]) for i, j, k in I]
+			if data_group.tex_coords2:
+				T2 = select_data(data_group.tex_coords2)
+				T2 = [(T2[i], T2[j], T2[k]) for i, j, k in I]
+			else:
+				T2 = None
 		else:
-			T = group.tex_coords and group.tex_coords[:] # copy or None
+			T1 = group.tex_coords and group.tex_coords[:] # copy or None
+			T2 = group.tex_coords2 and group.tex_coords2[:]
 
 		# also, Blender does not like triangles with zero-index vertex on 3rd position
 		# as well as degenerate triangles (i.e., less than 3 different indices):
@@ -154,22 +164,27 @@ def create_objects(geometry, transform_tree, settings):
 			if 0 == t[2]:
 				I[i] = (t[2], t[0], t[1])
 				log( '--Triangle # %i reordered:' % i, t, '->', I[i] )
-				if T:
-					uv1, uv2, uv3 = T[i]
-					T[i] = (uv3, uv1, uv2)
+				if T1:
+					uv1, uv2, uv3 = T1[i]
+					T1[i] = (uv3, uv1, uv2)
+					if T2:
+						uv1, uv2, uv3 = T2[i]
+						T2[i] = (uv3, uv1, uv2)
 			if len(set(t)) < 3:
 				w.append(i)
 				log( '--Triangle # %i' % i, t, 'removed' )
 		for i in reversed(w):
 			del I[i]
-			if T:
-				del T[i]
+			if T1:
+				del T1[i]
+				if T2:
+					del T2[i]
 		w = None
 
 		log( '--Creating mesh object (vertices: %i, triangles: %i)...' % (len(V), len(I)) )
 
 		# create mesh and add it to the scene
-		mesh = create_mesh(group.name, V, I, T)
+		mesh = create_mesh(group.name, V, I, T1, T2)
 		obj = scene.objects.new(mesh)
 		obj.name = group.name # max - 21 characters
 
