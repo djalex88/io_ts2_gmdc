@@ -1,0 +1,6 @@
+# exclude documentation
+README.md
+images/*
+
+# everything in target
+target/*
