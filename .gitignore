@@ -1,6 +1,5 @@
-# exclude documentation
-README.md
-images/*
+# python cache
+*.pyc
 
 # everything in target
 target/*
