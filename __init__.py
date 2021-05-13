@@ -107,7 +107,7 @@ class Import_GMDC(bpy.types.Operator, ImportHelper):
 			  'replace_inv_t' : self.replace_inv_t,
 			  'selected_only' : self.selected_only,
 			      'all_bones' : self.all_bones,
-				   'save_log' : self.save_log,
+			       'save_log' : self.save_log,
 			})
 		return {'FINISHED'}
 
@@ -263,7 +263,7 @@ class Export_GMDC(bpy.types.Operator, ExportHelper):
 			   'resource_name' : self.resource_name.strip(),
 			     'name_suffix' : self.name_suffix,
 			   'use_obj_props' : self.use_obj_props,
-				    'save_log' : self.save_log,
+			        'save_log' : self.save_log,
 			})
 		return {'FINISHED'}
 
