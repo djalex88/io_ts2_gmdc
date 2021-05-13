@@ -8,6 +8,8 @@ This add-on supports rigging data, two UV layers, morphs, and bounding geometry.
 3. Install by selecting the io\_ts2\_gmdc.zip file;
 4. Finally, enable "Import-Export: TS2 GMDC Importer/Exporter". (For easier navigation you may filter the list of add-ons by selecting "Import-Export" from the drop down list.
 
+[![Screenshot](images/thumb_install.png "Installation")](images/install.png)
+
 #### Importing
 The importer works in two modes, Geometry and Skeleton.
 To view the options, press the top right toggle button in the file selection window (if not already shown).
@@ -20,6 +22,8 @@ Key features:
 * Morphs are imported as shape keys.
 * Inverse transforms from GMDC files are saved in scene properties. This data is used by the exporter and included into generated GMDC file.
 * Seams can be removed by geometry reindexing (the "Remove doubles" option).
+
+[![Screenshot](images/thumb_image3.png "Screenshot")](images/image3.png)
 
 #### Links:
 * [Official Blender Website](https://www.blender.org/)
