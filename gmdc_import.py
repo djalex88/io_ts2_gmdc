@@ -136,7 +136,7 @@ def begin_import(filename, scene, settings):
 
 def import_geometry(scene, geometry, settings):
 
-	def create_mesh(name, V, I, T1, T2):
+	def create_mesh(name, V, N, I, T1, T2):
 
 		# create mesh
 		#
@@ -148,6 +148,15 @@ def import_geometry(scene, geometry, settings):
 		for poly in mesh.polygons:
 			poly.use_smooth = True
 
+		# set custom normals
+		#
+		if N:
+			normals = [BlenderVector(no).normalized() for no in N]
+			mesh.use_auto_smooth = True
+			mesh.normals_split_custom_set_from_vertices(normals)
+
+		# texture coords
+		#
 		if T1:
 			# add new texture layer
 			uv_layer = mesh.uv_layers.new()
@@ -197,6 +206,7 @@ def import_geometry(scene, geometry, settings):
 			return [x for i, x in enumerate(data) if i in S]
 
 		V = select_data(data_group.vertices)
+		N = select_data(data_group.normals)
 
 		# texture coords
 		if data_group.tex_coords:
@@ -236,7 +246,7 @@ def import_geometry(scene, geometry, settings):
 
 		# create mesh and add it to the collection
 		#
-		mesh = create_mesh(group.name, V, I, T1, T2)
+		mesh = create_mesh(group.name, V, N, I, T1, T2)
 		obj = bpy.data.objects.new(group.name, mesh)
 		active_collection_objects.link(obj)
 

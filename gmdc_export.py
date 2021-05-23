@@ -227,6 +227,16 @@ def export_geometry(scene, settings):
 			error( 'Error! Mesh object has no faces.' )
 			return False
 
+		# mesh normals (possibly custom normals)
+		#
+		mesh.calc_normals_split()
+		mesh_normals = []
+		for tri in mesh.loop_triangles:
+			tri_norm = []
+			for loop_idx in tri.loops:
+				tri_norm.append(tuple(mesh.loops[loop_idx].normal))
+			mesh_normals.append(tri_norm)
+
 		# texture coords
 		#
 		mesh_tex_coords = []
@@ -311,12 +321,10 @@ def export_geometry(scene, settings):
 
 		all_vertices = [] # for non-indexed vertices
 
-		for tri, tri_uv, tri_tan in zip(mesh.loop_triangles, mesh_tex_coords, mesh_tangents):
-			verts = []
-			norms = []
-			for idx in tri.vertices:
-				verts.append(tuple(mesh.vertices[idx].co + obj_loc))
-				norms.append(tuple(mesh.vertices[idx].normal))
+		for tri, tri_norm, tri_uv, tri_tan in zip(mesh.loop_triangles, mesh_normals, mesh_tex_coords, mesh_tangents):
+
+			verts = [tuple(mesh.vertices[idx].co + obj_loc) for idx in tri.vertices]
+
 			if rigging:
 				bones = []
 				weights = []
@@ -338,7 +346,7 @@ def export_geometry(scene, settings):
 				weights = [(), (), ()]
 
 			# add vertices to list
-			all_vertices.extend(zip(verts, norms, tri_uv, bones, weights, tri_tan))
+			all_vertices.extend(zip(verts, tri_norm, tri_uv, bones, weights, tri_tan))
 
 		#<- triangles
 
@@ -394,8 +402,19 @@ def export_geometry(scene, settings):
 
 				mesh.calc_loop_triangles()
 
-				if settings['export_tangents'] and morphing == 2:
-					mesh.calc_tangents(uvmap=uv_layer1.name)
+				if morphing == 2:
+					# calc normals for this shape
+					mesh.calc_normals_split()
+					mesh_normals = []
+					for tri in mesh.loop_triangles:
+						tri_norm = []
+						for loop_idx in tri.loops:
+							tri_norm.append(tuple(mesh.loops[loop_idx].normal))
+						mesh_normals.append(tri_norm)
+
+					if settings['export_tangents']:
+						# otherwise there will be problem with geometry indexing
+						mesh.calc_tangents(uvmap=uv_layer1.name)
 
 				# add difference arrays
 				dv = [] ; dVerts.append(dv)
@@ -403,14 +422,20 @@ def export_geometry(scene, settings):
 
 				# loop through all triangles and compute vertex differences
 				j = 0
-				for tri in mesh.loop_triangles:
-					verts = [(key_block.data[idx].co + obj_loc) for idx in tri.vertices]
-					norms = [mesh.vertices[idx].normal for idx in tri.vertices]
-
-					for co, no in zip(verts, norms):
-						dv.append(tuple(co - BlenderVector(all_vertices[j][0])))
-						dn.append(tuple(no - BlenderVector(all_vertices[j][1])))
-						j+= 1
+				if morphing == 2:
+					for tri, tri_norm in zip(mesh.loop_triangles, mesh_normals):
+						verts = [(key_block.data[idx].co + obj_loc) for idx in tri.vertices]
+						norms = map(BlenderVector, tri_norm)
+						for co, no in zip(verts, norms):
+							dv.append(tuple(co - BlenderVector(all_vertices[j][0])))
+							dn.append(tuple(no - BlenderVector(all_vertices[j][1])))
+							j+= 1
+				else:
+					for tri in mesh.loop_triangles:
+						verts = [(key_block.data[idx].co + obj_loc) for idx in tri.vertices]
+						for co in verts:
+							dv.append(tuple(co - BlenderVector(all_vertices[j][0])))
+							j+= 1
 				assert j == len(all_vertices)
 
 			log( '\x20\x20--Packing...' )
