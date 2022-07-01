@@ -24,7 +24,7 @@ bl_info = {
 	"name": "TS2 GMDC Importer/Exporter",
 	"description": "Import-Export TS2 GMDC, Import skeleton from CRES.",
 	"author": "DjAlex88 (https://github.com/djalex88/)",
-	"version": (0, 91, 0),
+	"version": (0, 91, 2),
 	"blender": (2, 80, 0),
 	"location": "File > Import > Import TS2 GMDC (.5gd, .gmdc)",
 	"category": "Import-Export",

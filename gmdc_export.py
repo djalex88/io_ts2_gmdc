@@ -138,7 +138,7 @@ def export_geometry(scene, settings):
 	if bpy.ops.object.mode_set.poll():
 		bpy.ops.object.mode_set(mode='OBJECT')
 
-	active_collection_objects = bpy.context.view_layer.active_layer_collection.collection.objects
+	view_layer_objects = bpy.context.view_layer.objects
 
 	# get all mesh objects
 	#
@@ -147,7 +147,7 @@ def export_geometry(scene, settings):
 	else:
 		mesh_object_filter = lambda obj: obj.type=='MESH'
 
-	mesh_objects = list(filter(mesh_object_filter, active_collection_objects))
+	mesh_objects = list(filter(mesh_object_filter, view_layer_objects))
 
 	# apply transforms if needed
 	#
@@ -170,7 +170,7 @@ def export_geometry(scene, settings):
 	# bounding mesh object
 	#
 	if settings['export_bmesh']:
-		bmesh_object = active_collection_objects.get(settings['bmesh_name'])
+		bmesh_object = view_layer_objects.get(settings['bmesh_name'])
 		if not bmesh_object or bmesh_object.type != 'MESH':
 			error( 'Error! Could not find bounding mesh.' )
 			return False
@@ -329,18 +329,22 @@ def export_geometry(scene, settings):
 				bones = []
 				weights = []
 				for idx in tri.vertices:
-					g, w = vertex_influences[idx]
-					if len(g) > 4:
-						error( 'Error! Vertex # %i of mesh object "%s" is in more that 4 vertex groups.' % (idx, obj.name) )
-						return False
-					# normalize weights and add to list
-					f = sum(w)
-					if f > 0.0001:
-						bones.append(map_group_indices(g))
-						weights.append(tuple(x/f for x in w))
-					else:
+					if not vertex_influences[idx]:
 						bones.append(tuple())
 						weights.append(tuple())
+					else:
+						g, w = vertex_influences[idx]
+						if len(g) > 4:
+							error( 'Error! Vertex # %i of mesh object "%s" is in more that 4 vertex groups.' % (idx, obj.name) )
+							return False
+						# normalize weights and add to list
+						f = sum(w)
+						if f > 0.0001:
+							bones.append(map_group_indices(g))
+							weights.append(tuple(x/f for x in w))
+						else:
+							bones.append(tuple())
+							weights.append(tuple())
 			else:
 				bones   = [(), (), ()]
 				weights = [(), (), ()]
@@ -659,7 +663,7 @@ def export_geometry(scene, settings):
 
 	if settings['export_bmesh']:
 
-		bmesh_object = active_collection_objects.get(settings['bmesh_name'])
+		bmesh_object = view_layer_objects.get(settings['bmesh_name'])
 		if not bmesh_object:
 			error( 'Error! Could not find bounding mesh object with name "%s".' % settings['bmesh_name'] )
 			return False
