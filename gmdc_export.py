@@ -41,7 +41,7 @@ from .gmdc_tools import (
 	)
 
 def popup_message(title, message, icon='NONE'):
-	bpy.context.window_manager.popup_menu(lambda w, c: w.layout.label(text=message), title, icon)
+	bpy.context.window_manager.popup_menu(lambda w, c: w.layout.label(text=message), title=title, icon=icon)
 
 
 ########################################
